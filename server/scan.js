@@ -25,7 +25,8 @@ const SIGNAL_SEARCH_TYPES = [
 
 export { SIGNAL_SEARCH_TYPES };
 
-function buildSignalQuery(acct, typeId) {
+// Long instructional prompt for Claude Agent (understands natural language)
+function buildAgentQuery(acct, typeId) {
   const co = acct["Account Name"] || "Unknown";
   const ind = acct["Sierra Industry"]
     ? " (" + acct["Sierra Industry"] + (acct["Sierra Subindustry"] ? " / " + acct["Sierra Subindustry"] : "") + ")"
@@ -39,10 +40,25 @@ function buildSignalQuery(acct, typeId) {
   throw new Error("Unknown signal search type: " + typeId);
 }
 
+// Short keyword query for Brave / Tavily (search engine style, max ~200 chars)
+function buildKeywordQuery(acct, typeId) {
+  const co = '"' + (acct["Account Name"] || "Unknown") + '"';
+
+  if (typeId === "leadership") return co + ' (appoints OR "names new" OR "hires" OR "chief" OR "leadership") site:businesswire.com OR site:prnewswire.com OR site:linkedin.com OR site:reuters.com OR site:wsj.com';
+  if (typeId === "cx_ai")     return co + ' ("customer experience" OR "AI" OR "contact center" OR "support" OR "automation")';
+  if (typeId === "funding")   return co + ' (funding OR acquisition OR "raises" OR IPO OR merger)';
+  if (typeId === "negative")  return co + ' (complaints OR outage OR "customer service" OR problems OR lawsuit)';
+  throw new Error("Unknown signal search type: " + typeId);
+}
+
+function buildSignalQuery(acct, typeId, providerName) {
+  return providerName === "agent" ? buildAgentQuery(acct, typeId) : buildKeywordQuery(acct, typeId);
+}
+
 // Single search step — called 4× in parallel by the frontend
 export async function runOneSignalSearch(acct, typeId, providerName) {
   const provider = getProvider(providerName);
-  const query = buildSignalQuery(acct, typeId);
+  const query = buildSignalQuery(acct, typeId, providerName);
   const text = await provider.search(query);
   const label = SIGNAL_SEARCH_TYPES.find(t => t.id === typeId)?.label || typeId.toUpperCase();
   return { typeId, label, text: text || "" };
@@ -53,8 +69,10 @@ export async function classifySignalResults(acct, searchResults, sigCrit) {
   const today = new Date().toISOString().slice(0, 10);
   const co = acct["Account Name"] || "Unknown";
 
+  // Truncate each bucket to 2000 chars — Tavily returns full article text which
+  // can make the combined payload 50K+ chars and blow Claude's processing time.
   const combined = searchResults
-    .map(r => r.text ? "=== " + r.label + " ===\n" + r.text : "")
+    .map(r => r.text ? "=== " + r.label + " ===\n" + r.text.slice(0, 2000) : "")
     .filter(Boolean)
     .join("\n\n");
 

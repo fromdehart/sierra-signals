@@ -68,9 +68,9 @@ function runClaude(prompt, { systemPrompt, allowWebSearch = false, timeoutMs = 9
 }
 
 export async function search(searchQuery) {
-  return runClaude(searchQuery, { allowWebSearch: true, timeoutMs: 120000 });
+  return runClaude(searchQuery, { allowWebSearch: true, timeoutMs: 600000 });
 }
 
 export async function classify(systemPrompt, content) {
-  return runClaude(content, { systemPrompt, allowWebSearch: false, timeoutMs: 120000 });
+  return runClaude(content, { systemPrompt, allowWebSearch: false, timeoutMs: 600000 });
 }

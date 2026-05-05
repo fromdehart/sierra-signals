@@ -21,7 +21,7 @@ export async function search(searchQuery) {
     });
     const results = res.results ?? [];
     return results
-      .map(r => "Title: " + r.title + "\nURL: " + r.url + "\nContent: " + (r.content ?? ""))
+      .map(r => "Title: " + r.title + "\nURL: " + r.url + "\nContent: " + (r.content ?? "").slice(0, 500))
       .join("\n\n");
   } catch (e) {
     console.error("[tavily]", e.message);

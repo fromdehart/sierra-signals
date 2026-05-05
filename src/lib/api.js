@@ -5,7 +5,7 @@ async function post(path, body) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(180000), // 3 minutes per scan call
+    signal: AbortSignal.timeout(660000), // 11 minutes — enough for any provider
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

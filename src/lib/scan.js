@@ -46,9 +46,27 @@ export async function runBulkSignalScan({ accounts, sigCriteria, provider, onLog
       if (shouldStop()) break;
 
       const withResults = searchResults.filter(r => r.text?.trim());
-      onLog("  Searches done (" + withResults.length + "/4 returned results) — classifying...");
+      const resultCounts = searchResults.map(r => {
+        const lines = (r.text || "").split("\n").filter(l => l.startsWith("Title:")).length;
+        return r.label + ": " + lines;
+      }).join("  ");
+      onLog("  Searches done — " + resultCounts);
+      onLog("  Classifying: reading results, scoring relevance, extracting signal dates & sources...");
 
-      const newSigs = await api.classifySignals(acct, searchResults, sigCriteria);
+      // Tick elapsed time every 10s so the log doesn't look frozen
+      const classifyStart = Date.now();
+      const ticker = setInterval(() => {
+        const s = Math.round((Date.now() - classifyStart) / 1000);
+        onLog("  Still classifying... (" + s + "s)");
+      }, 10000);
+
+      let newSigs = [];
+      try {
+        newSigs = await api.classifySignals(acct, searchResults, sigCriteria);
+      } finally {
+        clearInterval(ticker);
+      }
+
       const updated = doMerge(acct, newSigs);
       onAccountDone(updated);
       onLog("  Done — " + newSigs.length + " signal(s) found");

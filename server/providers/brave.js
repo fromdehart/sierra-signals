@@ -13,7 +13,6 @@ export async function search(searchQuery) {
     const res = await fetch(url, {
       headers: {
         Accept: "application/json",
-        "Accept-Encoding": "gzip",
         "X-Subscription-Token": key,
       },
     });
@@ -24,7 +23,11 @@ export async function search(searchQuery) {
     const data = await res.json();
     const results = data.web?.results ?? [];
     return results
-      .map(r => "Title: " + r.title + "\nURL: " + r.url + "\nSnippet: " + (r.description ?? ""))
+      .map(r => {
+        let text = "Title: " + r.title + "\nURL: " + r.url + "\nSnippet: " + (r.description ?? "");
+        if (r.extra_snippets?.length) text += "\n" + r.extra_snippets.join("\n");
+        return text;
+      })
       .join("\n\n");
   } catch (e) {
     console.error("[brave]", e.message);
