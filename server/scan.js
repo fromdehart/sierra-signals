@@ -1,0 +1,212 @@
+import * as agentProvider from "./providers/agent.js";
+import * as braveProvider from "./providers/brave.js";
+import * as tavilyProvider from "./providers/tavily.js";
+import { normCat, normHead, uid, CANONICAL_CATS } from "./lib.js";
+
+function getProvider(name) {
+  if (name === "brave") return braveProvider;
+  if (name === "tavily") return tavilyProvider;
+  return agentProvider;
+}
+
+// Brave and Tavily only handle search; classification always goes through agent.
+async function classifyText(systemPrompt, content) {
+  return agentProvider.classify(systemPrompt, content);
+}
+
+// ---------- Signal Scan — broken into individual steps for frontend progress tracking ----------
+
+const SIGNAL_SEARCH_TYPES = [
+  { id: "leadership", label: "LEADERSHIP" },
+  { id: "cx_ai",     label: "CX/AI/SUPPORT" },
+  { id: "funding",   label: "FUNDING" },
+  { id: "negative",  label: "NEGATIVE CX" },
+];
+
+export { SIGNAL_SEARCH_TYPES };
+
+function buildSignalQuery(acct, typeId) {
+  const co = acct["Account Name"] || "Unknown";
+  const ind = acct["Sierra Industry"]
+    ? " (" + acct["Sierra Industry"] + (acct["Sierra Subindustry"] ? " / " + acct["Sierra Subindustry"] : "") + ")"
+    : "";
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (typeId === "leadership") return 'Find news published in the last 90 days (today is ' + today + ') about executive appointments or departures at ' + co + ind + '. Search "' + co + ' appoints", "' + co + ' names new", "' + co + ' hires chief", "' + co + ' leadership". Include exact publication date and exact article URL for every result.';
+  if (typeId === "cx_ai")     return 'Find news in the last 90 days (today is ' + today + ') about customer experience, AI, or support transformation at ' + co + ind + '. Search "' + co + ' customer experience", "' + co + ' AI customer service", "' + co + ' contact center", "' + co + ' support automation". Include exact date and URL.';
+  if (typeId === "funding")   return 'Find news in the last 90 days (today is ' + today + ') about funding, M&A, IPO, or growth at ' + co + ind + '. Search "' + co + ' funding", "' + co + ' acquisition", "' + co + ' raises", "' + co + ' growth". Include exact date and URL.';
+  if (typeId === "negative")  return 'Find news in the last 90 days (today is ' + today + ') about customer service problems at ' + co + ind + '. Search "' + co + ' complaints", "' + co + ' outage", "' + co + ' customer service problems". Include exact date and URL.';
+  throw new Error("Unknown signal search type: " + typeId);
+}
+
+// Single search step — called 4× in parallel by the frontend
+export async function runOneSignalSearch(acct, typeId, providerName) {
+  const provider = getProvider(providerName);
+  const query = buildSignalQuery(acct, typeId);
+  const text = await provider.search(query);
+  const label = SIGNAL_SEARCH_TYPES.find(t => t.id === typeId)?.label || typeId.toUpperCase();
+  return { typeId, label, text: text || "" };
+}
+
+// Classify step — called once after all 4 searches complete
+export async function classifySignalResults(acct, searchResults, sigCrit) {
+  const today = new Date().toISOString().slice(0, 10);
+  const co = acct["Account Name"] || "Unknown";
+
+  const combined = searchResults
+    .map(r => r.text ? "=== " + r.label + " ===\n" + r.text : "")
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!combined.trim()) return [];
+
+  const classifySystem =
+    sigCrit +
+    "\n\nRESPOND WITH VALID JSON ARRAY ONLY. NO MARKDOWN. NO CODE FENCES.\nUse only these exact category names: " +
+    CANONICAL_CATS.join(", ") +
+    "\nOnly include signals within 180 days of " + today +
+    ". source_url = direct article URL. date = YYYY-MM-DD.";
+
+  const classifyContent =
+    "Company: " + co +
+    "\nIndustry: " + (acct["Sierra Industry"] || "unknown") +
+    "\nWebsite: " + (acct["Account Website"] || "") +
+    "\nRevenue: " + (acct["Annual Revenue"] || "") +
+    "\nToday: " + today +
+    "\n\n" + combined +
+    "\n\nReturn JSON array only.";
+
+  const raw = await classifyText(classifySystem, classifyContent);
+
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
+    if (Array.isArray(parsed)) return parsed.map(s => ({ ...s, category: normCat(s.category) }));
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+// ---------- Contact ID ----------
+
+export async function runContactScan(acct, providerName) {
+  const provider = getProvider(providerName);
+  const co = acct["Account Name"] || "Unknown";
+  const today = new Date().toISOString().slice(0, 10);
+
+  const queries = [
+    "Find current executives at " + co + " with titles CCO, CXO, VP Customer Experience, or VP Customer Success. Include full name, exact title, and source URL.",
+    "Find current executives at " + co + " with titles VP Customer Support, VP Contact Center, or SVP Support. Include full name, exact title, and source URL.",
+    "Find current executives at " + co + " with titles CTO, CDO, VP AI, or VP Engineering. Include full name, exact title, and source URL.",
+    'Find news in the last 90 days (today is ' + today + ') about executive appointments at ' + co + '. Search "' + co + ' appoints", "' + co + ' joins as", "' + co + ' named". Include full name, title, date, source URL.',
+  ];
+
+  const results = await Promise.all(queries.map(q => provider.search(q)));
+  const combined = results.filter(Boolean).join("\n\n");
+  if (!combined.trim()) return [];
+
+  const system =
+    "You are extracting real, named executives from search results for a sales team at Sierra AI.\n" +
+    "Return a JSON array of up to 8 executives. Each item:\n" +
+    '{ "name": string, "title": string, "department": string, "rationale": string, "linkedin_search": string, "source_url": string, "appointed_recently": boolean, "appointment_date": string|null, "from_signal": boolean }\n' +
+    "NEVER hallucinate. Only include people explicitly named in the search results.\n" +
+    "RESPOND WITH VALID JSON ARRAY ONLY. NO MARKDOWN.";
+
+  const content =
+    "Company: " + co +
+    "\nIndustry: " + (acct["Sierra Industry"] || "unknown") +
+    "\nToday: " + today +
+    "\n\n" + combined +
+    "\n\nReturn JSON array only.";
+
+  const raw = await classifyText(system, content);
+
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
+    if (Array.isArray(parsed)) {
+      return parsed.map(c => ({
+        ...c,
+        id: uid(),
+        accountId: acct.id,
+        status: "Not started",
+        outreach: null,
+        notes: "",
+        enrichment: null,
+        verified: null,
+      }));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+// ---------- Contact Enrichment ----------
+
+export async function runEnrichment(contact, acct, providerName) {
+  const provider = getProvider(providerName);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const q =
+    "Verify that " + contact.name + " is currently " + contact.title + " at " + (acct["Account Name"] || "") +
+    ". Find a recent public quote or statement from them about customer experience, AI, or support. Include source URL.";
+
+  const searchResult = await provider.search(q);
+  if (!searchResult.trim()) return null;
+
+  const system =
+    "You are verifying an executive contact for a sales team.\n" +
+    "Return a JSON object:\n" +
+    '{ "verified": true|false|null, "verification_note": string, "enrichment": { "insight": string, "quote": string, "source": string } }\n' +
+    "verified=true if you confirmed their current role. verified=false if they have left. verified=null if unclear.\n" +
+    "RESPOND WITH VALID JSON ONLY. NO MARKDOWN.";
+
+  const content =
+    "Contact: " + contact.name + ", " + contact.title +
+    "\nCompany: " + (acct["Account Name"] || "") +
+    "\nToday: " + today +
+    "\n\nSearch results:\n" + searchResult +
+    "\n\nReturn JSON only.";
+
+  const raw = await classifyText(system, content);
+
+  try {
+    return JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Outreach Generation ----------
+
+export async function runOutreach(contact, acct, signals, msgCrit) {
+  // Outreach is pure LLM — no search needed regardless of provider.
+  const topSignals = (signals || [])
+    .sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0))
+    .slice(0, 3)
+    .map(s => "- [" + s.category + "] " + s.headline + " (" + (s.date || "") + ")")
+    .join("\n");
+
+  const enrichmentCtx = contact.enrichment
+    ? "Enrichment insight: " + contact.enrichment.insight +
+      (contact.enrichment.quote ? '\nContact quote: "' + contact.enrichment.quote + '"' : "")
+    : "";
+
+  const content =
+    "Contact: " + contact.name + ", " + contact.title + " at " + (acct["Account Name"] || "") +
+    "\nIndustry: " + (acct["Sierra Industry"] || "") +
+    "\nTop signals:\n" + (topSignals || "No signals yet") +
+    (enrichmentCtx ? "\n\n" + enrichmentCtx : "") +
+    (contact.appointed_recently ? "\nNote: recently appointed to this role." : "") +
+    '\n\nReturn a JSON array of 3 email touches: [{ "touch": 1, "subject": string, "body": string }, ...]' +
+    "\nNO MARKDOWN. JSON ARRAY ONLY.";
+
+  const raw = await agentProvider.classify(msgCrit, content);
+
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
