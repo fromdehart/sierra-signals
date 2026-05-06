@@ -9,8 +9,19 @@ function getProvider(name) {
   return agentProvider;
 }
 
-// Brave and Tavily only handle search; classification always goes through agent.
+// Classification: use Anthropic SDK directly if key is set (~5-10s vs ~90s subprocess)
 async function classifyText(systemPrompt, content) {
+  if (process.env.ANTHROPIC_API_KEY) {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const msg = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content }],
+    });
+    return msg.content[0]?.text ?? "";
+  }
   return agentProvider.classify(systemPrompt, content);
 }
 
@@ -96,11 +107,21 @@ export async function classifySignalResults(acct, searchResults, sigCrit) {
 
   const raw = await classifyText(classifySystem, classifyContent);
 
+  console.log("[classify] bucket:", searchResults.map(r => r.label).join(","), "| raw length:", raw.length);
+  console.log("[classify] raw response:\n" + raw.slice(0, 1000));
+
   try {
-    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
-    if (Array.isArray(parsed)) return parsed.map(s => ({ ...s, category: normCat(s.category) }));
+    const cleaned = raw.replace(/```json|```/g, "").trim() || "[]";
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      console.log("[classify] parsed", parsed.length, "item(s)");
+      return parsed.map(s => ({ ...s, category: normCat(s.category) }));
+    }
+    console.log("[classify] parsed value was not an array:", typeof parsed);
     return [];
-  } catch {
+  } catch (e) {
+    console.log("[classify] JSON parse error:", e.message);
+    console.log("[classify] failed to parse:\n" + raw.slice(0, 500));
     return [];
   }
 }
@@ -224,6 +245,40 @@ export async function runOutreach(contact, acct, signals, msgCrit) {
   try {
     const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
     return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// ---------- Combined Agent Scan (search + classify in one subprocess) ----------
+
+export async function runCombinedAgentScan(acct, sigCrit) {
+  const co = acct["Account Name"] || "Unknown";
+  const ind = acct["Sierra Industry"]
+    ? " (" + acct["Sierra Industry"] + (acct["Sierra Subindustry"] ? " / " + acct["Sierra Subindustry"] : "") + ")"
+    : "";
+  const today = new Date().toISOString().slice(0, 10);
+
+  const prompt =
+    "Today is " + today + ". Research " + co + ind + " for B2B sales buying signals.\n\n" +
+    "Use WebSearch to run these searches (run all 4):\n" +
+    '1. "' + co + ' appoints" OR "' + co + ' names new" OR "' + co + ' leadership" — executive changes\n' +
+    '2. "' + co + ' customer experience" OR "' + co + ' AI" OR "' + co + ' contact center" — CX/AI news\n' +
+    '3. "' + co + ' funding" OR "' + co + ' acquisition" OR "' + co + ' raises" — funding/M&A\n' +
+    '4. "' + co + ' complaints" OR "' + co + ' outage" OR "' + co + ' customer service problems" — negative CX\n\n' +
+    "After all searches, respond with ONLY a valid JSON array. No explanation. No markdown. No code fences.\n" +
+    "Each item: { \"category\": string, \"headline\": string, \"date\": \"YYYY-MM-DD\", \"source_url\": string, \"relevance_score\": 1-10, \"summary\": string }\n" +
+    "Use only these category names: " + CANONICAL_CATS.join(", ") + "\n" +
+    "Only include signals from the last 180 days. If none, return [].\n\n" +
+    (sigCrit ? sigCrit + "\n\n" : "") +
+    "JSON array only:";
+
+  const raw = await agentProvider.search(prompt);
+
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
+    if (Array.isArray(parsed)) return parsed.map(s => ({ ...s, category: normCat(s.category) }));
+    return [];
   } catch {
     return [];
   }

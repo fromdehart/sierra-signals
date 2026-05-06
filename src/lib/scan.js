@@ -19,63 +19,79 @@ function tierOrder(acct) {
 
 // ---------- Signal Scan ----------
 
-export async function runBulkSignalScan({ accounts, sigCriteria, provider, onLog, onAccountDone, shouldStop }) {
-  const sorted = [...accounts].sort((a, b) => tierOrder(a) - tierOrder(b));
+async function scanOneAccount(acct, idx, total, sigCriteria, provider, onLog, onAccountDone) {
+  const name = acct["Account Name"] || acct.id;
+  const tag = "[" + (idx + 1) + "/" + total + "] " + name;
+  onLog(tag);
 
-  for (let i = 0; i < sorted.length; i++) {
-    if (shouldStop()) break;
-    const acct = sorted[i];
-    const name = acct["Account Name"] || acct.id;
-    onLog("[" + (i + 1) + "/" + sorted.length + "] " + name);
-
-    try {
-      // Run 4 searches in parallel, logging each as it completes
+  try {
+    {
+      // All providers: 4 parallel searches then classify
       const pending = new Set(SEARCH_TYPES.map(t => t.label));
-      onLog("  Searching: " + [...pending].join(" · "));
+      onLog("  " + name + ": searching " + [...pending].join(" · "));
 
       const searchResults = await Promise.all(
         SEARCH_TYPES.map(t =>
           api.searchOne(acct, t.id, provider).then(result => {
             pending.delete(t.label);
-            if (pending.size > 0) onLog("  Still searching: " + [...pending].join(" · "));
+            onLog("  " + name + ": [" + result.label + "] search done" + (pending.size ? " — waiting on " + [...pending].join(", ") : ""));
             return result;
           })
         )
       );
 
-      if (shouldStop()) break;
+      // Classify each bucket individually — update UI after each one
+      let current = acct;
+      let totalSigs = 0;
+      for (const r of searchResults) {
+        const titles = (r.text || "").split("\n").filter(l => l.startsWith("Title:")).map(l => l.replace("Title: ", "").trim());
+        if (titles.length === 0) {
+          onLog("    [" + r.label + "] no results, skipping");
+          continue;
+        }
+        onLog("    [" + r.label + "] " + titles.length + " result(s):");
+        titles.forEach(t => onLog("      • " + t));
+        onLog("    [" + r.label + "] classifying...");
 
-      const withResults = searchResults.filter(r => r.text?.trim());
-      const resultCounts = searchResults.map(r => {
-        const lines = (r.text || "").split("\n").filter(l => l.startsWith("Title:")).length;
-        return r.label + ": " + lines;
-      }).join("  ");
-      onLog("  Searches done — " + resultCounts);
-      onLog("  Classifying: reading results, scoring relevance, extracting signal dates & sources...");
+        const ticker = setInterval(() => onLog("    [" + r.label + "] still classifying..."), 10000);
+        let bucketSigs = [];
+        try {
+          bucketSigs = await api.classifySignals(current, [r], sigCriteria);
+        } catch (e) {
+          onLog("    [" + r.label + "] classify error: " + e.message);
+        } finally {
+          clearInterval(ticker);
+        }
 
-      // Tick elapsed time every 10s so the log doesn't look frozen
-      const classifyStart = Date.now();
-      const ticker = setInterval(() => {
-        const s = Math.round((Date.now() - classifyStart) / 1000);
-        onLog("  Still classifying... (" + s + "s)");
-      }, 10000);
-
-      let newSigs = [];
-      try {
-        newSigs = await api.classifySignals(acct, searchResults, sigCriteria);
-      } finally {
-        clearInterval(ticker);
+        if (bucketSigs.length === 0) {
+          onLog("    [" + r.label + "] → 0 signals");
+        } else {
+          onLog("    [" + r.label + "] → " + bucketSigs.length + " signal(s): " + bucketSigs.map(s => s.headline).join(" | "));
+          current = doMerge(current, bucketSigs);
+          totalSigs += bucketSigs.length;
+          onAccountDone(current);
+        }
       }
 
-      const updated = doMerge(acct, newSigs);
-      onAccountDone(updated);
-      onLog("  Done — " + newSigs.length + " signal(s) found");
-    } catch (e) {
-      onLog("  Error: " + e.message);
+      onLog("  " + name + ": done — " + totalSigs + " signal(s)");
     }
+  } catch (e) {
+    onLog("  " + name + ": error — " + e.message);
+  }
+}
 
-    if (i < sorted.length - 1 && !shouldStop()) {
-      onLog("  Waiting 5s...");
+export async function runBulkSignalScan({ accounts, sigCriteria, provider, onLog, onAccountDone, shouldStop }) {
+  const sorted = [...accounts].sort((a, b) => tierOrder(a) - tierOrder(b));
+  const BATCH = 2;
+
+  for (let i = 0; i < sorted.length; i += BATCH) {
+    if (shouldStop()) break;
+    const batch = sorted.slice(i, i + BATCH);
+    await Promise.all(
+      batch.map((acct, j) => scanOneAccount(acct, i + j, sorted.length, sigCriteria, provider, onLog, onAccountDone))
+    );
+    if (i + BATCH < sorted.length && !shouldStop()) {
+      onLog("Waiting 5s before next batch...");
       await sleep(5000);
     }
   }

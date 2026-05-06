@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { runOneSignalSearch, classifySignalResults, runContactScan, runEnrichment, runOutreach } from "./scan.js";
+import { runOneSignalSearch, classifySignalResults, runCombinedAgentScan, runContactScan, runEnrichment, runOutreach } from "./scan.js";
+import { dbLoadAllAccounts, dbSaveAccount, dbDeleteAccount, dbLoadSettings, dbSaveSetting } from "./db.js";
 
 dotenv.config();
 
@@ -9,12 +10,60 @@ const app = express();
 app.use(cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"] }));
 app.use(express.json({ limit: "2mb" }));
 
+// ---------- Data persistence ----------
+
+app.get("/api/data", (_req, res) => {
+  try {
+    const accounts = dbLoadAllAccounts();
+    const settings = dbLoadSettings();
+    res.json({ accounts, settings });
+  } catch (e) {
+    console.error("[data] load error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/data/account", (req, res) => {
+  const { account } = req.body;
+  if (!account?.id) return res.status(400).json({ error: "account.id required" });
+  try {
+    dbSaveAccount(account);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[data] save account error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete("/api/data/account/:id", (req, res) => {
+  try {
+    dbDeleteAccount(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/data/settings", (req, res) => {
+  const { key, value } = req.body;
+  if (!key) return res.status(400).json({ error: "key required" });
+  try {
+    dbSaveSetting(key, value);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- Scan providers ----------
+
 // Which providers are available (based on keys in .env)
 app.get("/api/providers", (_req, res) => {
   res.json({
     agent: true,
     brave: !!process.env.BRAVE_API_KEY,
     tavily: !!process.env.TAVILY_API_KEY,
+    fastClassify: !!process.env.ANTHROPIC_API_KEY,
   });
 });
 
@@ -27,6 +76,19 @@ app.post("/api/scan/search-one", async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error("[search-one]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Agent-only fast path: one subprocess does all 4 searches + classify in one pass
+app.post("/api/scan/signals-combined", async (req, res) => {
+  const { account, sigCriteria } = req.body;
+  if (!account) return res.status(400).json({ error: "account required" });
+  try {
+    const signals = await runCombinedAgentScan(account, sigCriteria || "");
+    res.json({ signals });
+  } catch (e) {
+    console.error("[signals-combined]", e);
     res.status(500).json({ error: e.message });
   }
 });

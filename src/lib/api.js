@@ -5,12 +5,18 @@ async function post(path, body) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(660000), // 11 minutes — enough for any provider
+    signal: AbortSignal.timeout(660000),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || res.statusText);
   }
+  return res.json();
+}
+
+async function del(path) {
+  const res = await fetch(BASE + path, { method: "DELETE" });
+  if (!res.ok) throw new Error(res.statusText);
   return res.json();
 }
 
@@ -20,9 +26,34 @@ export async function getProviders() {
   return res.json();
 }
 
+// ---------- Persistence ----------
+
+export async function loadData() {
+  const res = await fetch(BASE + "/data");
+  if (!res.ok) throw new Error("Could not load data");
+  return res.json(); // { accounts, settings }
+}
+
+export async function saveAccountToDb(account) {
+  return post("/data/account", { account });
+}
+
+export async function deleteAccountFromDb(id) {
+  return del("/data/account/" + id);
+}
+
+export async function saveSettingToDb(key, value) {
+  return post("/data/settings", { key, value });
+}
+
 export async function searchOne(account, typeId, provider) {
   const data = await post("/scan/search-one", { account, typeId, provider });
   return data; // { typeId, label, text }
+}
+
+export async function scanSignalsCombined(account, sigCriteria) {
+  const data = await post("/scan/signals-combined", { account, sigCriteria });
+  return data.signals ?? [];
 }
 
 export async function classifySignals(account, searchResults, sigCriteria) {

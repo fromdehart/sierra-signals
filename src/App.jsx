@@ -8,11 +8,7 @@ import SettingsTab from "./tabs/SettingsTab.jsx";
 import SignalPanel from "./components/SignalPanel.jsx";
 import ContactPanel from "./components/ContactPanel.jsx";
 import { DEFAULT_SIG_CRITERIA, DEFAULT_MSG_CRITERIA } from "./lib/constants.js";
-import {
-  loadAllAccounts, saveAllAccounts, loadCriteria, saveCriteria,
-  loadProvider, saveProvider, saveFullAccount,
-} from "./lib/storage.js";
-import { getProviders } from "./lib/api.js";
+import { getProviders, loadData, saveAccountToDb, deleteAccountFromDb, saveSettingToDb } from "./lib/api.js";
 
 const TABS = ["Priority", "Signals", "Accounts", "Contacts", "Criteria", "Settings"];
 
@@ -28,38 +24,24 @@ export default function App() {
   const [serverOk, setServerOk] = useState(null);
   const saveTimer = useRef(null);
 
-  // Load on mount
+  // Load on mount from server DB
   useEffect(() => {
-    const saved = loadAllAccounts();
-    if (saved.length > 0) setAccounts(saved);
-
-    const crit = loadCriteria();
-    if (crit) {
-      if (crit.signal) setSigCriteria(crit.signal);
-      if (crit.msg) setMsgCriteria(crit.msg);
-    }
-
-    const prov = loadProvider();
-    if (prov) setProvider(prov);
-
-    // Check server + available providers
-    getProviders()
+    loadData()
+      .then(({ accounts: saved, settings }) => {
+        if (saved?.length > 0) setAccounts(saved);
+        if (settings?.sigCriteria) setSigCriteria(settings.sigCriteria);
+        if (settings?.msgCriteria) setMsgCriteria(settings.msgCriteria);
+        if (settings?.provider) setProvider(settings.provider);
+        return getProviders();
+      })
       .then(p => { setAvailableProviders(p); setServerOk(true); })
       .catch(() => setServerOk(false));
   }, []);
 
-  // Auto-save accounts 2s after any change
-  useEffect(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      if (accounts.length > 0) saveAllAccounts(accounts);
-    }, 2000);
-    return () => clearTimeout(saveTimer.current);
-  }, [accounts]);
-
   function manualSave() {
-    saveAllAccounts(accounts);
-    saveCriteria(sigCriteria, msgCriteria);
+    accounts.forEach(a => saveAccountToDb(a));
+    saveSettingToDb("sigCriteria", sigCriteria);
+    saveSettingToDb("msgCriteria", msgCriteria);
     const total = accounts.reduce((n, a) => n + (a.signals || []).length + (a.contacts || []).length, 0);
     setSaveMsg("Saved — " + accounts.length + " accounts, " + total + " items");
     setTimeout(() => setSaveMsg(""), 3000);
@@ -67,7 +49,7 @@ export default function App() {
 
   function handleProviderChange(p) {
     setProvider(p);
-    saveProvider(p);
+    saveSettingToDb("provider", p);
   }
 
   function handleCriteriaChange(type, val) {
@@ -78,7 +60,7 @@ export default function App() {
   // Update a single account in state + persist immediately
   const handleAccountUpdated = useCallback((updated) => {
     setAccounts(prev => prev.map(a => a.id === updated.id ? updated : a));
-    saveFullAccount(updated);
+    saveAccountToDb(updated);
   }, []);
 
   // Update a contact within its account
@@ -108,14 +90,15 @@ export default function App() {
 
   function handleImport(parsed) {
     setAccounts(prev => {
-      // Merge: keep existing accounts, append new ones not already present by name
       const existingNames = new Set(prev.map(a => (a["Account Name"] || "").toLowerCase()));
       const fresh = parsed.filter(p => !existingNames.has((p["Account Name"] || "").toLowerCase()));
+      fresh.forEach(a => saveAccountToDb(a));
       return [...prev, ...fresh];
     });
   }
 
   function handleClear() {
+    accounts.forEach(a => deleteAccountFromDb(a.id));
     setAccounts([]);
     setPanel(null);
   }

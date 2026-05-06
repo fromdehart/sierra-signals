@@ -1,5 +1,4 @@
 import { useRef } from "react";
-import { clearAll } from "../lib/storage.js";
 import { parseCSV } from "../lib/scan.js";
 
 export default function SettingsTab({ accounts, onImport, onClear }) {
@@ -51,7 +50,6 @@ export default function SettingsTab({ accounts, onImport, onClear }) {
 
   function handleClear() {
     if (!window.confirm("Clear all data? This cannot be undone.")) return;
-    clearAll();
     onClear();
   }
 
