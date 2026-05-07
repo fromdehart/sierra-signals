@@ -44,13 +44,18 @@ async function scanOneAccount(acct, idx, total, sigCriteria, provider, onLog, on
       let current = acct;
       let totalSigs = 0;
       for (const r of searchResults) {
-        const titles = (r.text || "").split("\n").filter(l => l.startsWith("Title:")).map(l => l.replace("Title: ", "").trim());
-        if (titles.length === 0) {
+        if (!r.text?.trim()) {
           onLog("    [" + r.label + "] no results, skipping");
           continue;
         }
-        onLog("    [" + r.label + "] " + titles.length + " result(s):");
-        titles.forEach(t => onLog("      • " + t));
+        // Show titles if structured (Brave/Tavily), otherwise show char count (Claude Agent prose)
+        const titles = r.text.split("\n").filter(l => l.startsWith("Title:")).map(l => l.replace("Title: ", "").trim());
+        if (titles.length > 0) {
+          onLog("    [" + r.label + "] " + titles.length + " result(s):");
+          titles.forEach(t => onLog("      • " + t));
+        } else {
+          onLog("    [" + r.label + "] " + r.text.length + " chars of search results");
+        }
         onLog("    [" + r.label + "] classifying...");
 
         const ticker = setInterval(() => onLog("    [" + r.label + "] still classifying..."), 10000);
@@ -200,6 +205,57 @@ export async function runBulkOutreach({ accounts, msgCriteria, provider, onLog, 
   }
 
   onLog("Outreach generation complete.");
+}
+
+// ---------- Full single-account scan (all 4 steps in sequence) ----------
+
+export async function runFullScan({ account, sigCriteria, msgCriteria, provider, onLog, onAccountDone, shouldStop }) {
+  let current = account;
+  const track = (updated) => { current = updated; onAccountDone(updated); };
+
+  onLog("=== Step 1/4: Signal Scan ===");
+  await scanOneAccount(current, 0, 1, sigCriteria, provider, onLog, track);
+  if (shouldStop?.()) { onLog("Stopped."); return; }
+
+  onLog("=== Step 2/4: Contact ID ===");
+  try {
+    const newContacts = await api.scanContacts(current, provider);
+    current = { ...current, contacts: newContacts };
+    onAccountDone(current);
+    onLog("  Found " + newContacts.length + " contact(s)");
+  } catch (e) {
+    onLog("  Contact ID error: " + e.message);
+  }
+  if (shouldStop?.()) { onLog("Stopped."); return; }
+
+  onLog("=== Step 3/4: Enrichment ===");
+  for (const contact of (current.contacts || [])) {
+    if (shouldStop?.()) break;
+    onLog("  Enriching " + contact.name + "...");
+    try {
+      const data = await api.scanEnrich(contact, current, provider);
+      if (data) {
+        current = { ...current, contacts: current.contacts.map(c => c.id === contact.id ? { ...c, ...data } : c) };
+        onAccountDone(current);
+      }
+    } catch (e) { onLog("  Error: " + e.message); }
+    await sleep(1000);
+  }
+  if (shouldStop?.()) { onLog("Stopped."); return; }
+
+  onLog("=== Step 4/4: Outreach ===");
+  for (const contact of (current.contacts || [])) {
+    if (shouldStop?.()) break;
+    onLog("  Generating outreach for " + contact.name + "...");
+    try {
+      const outreach = await api.scanOutreach(contact, current, current.signals, msgCriteria, provider);
+      current = { ...current, contacts: current.contacts.map(c => c.id === contact.id ? { ...c, outreach } : c) };
+      onAccountDone(current);
+    } catch (e) { onLog("  Error: " + e.message); }
+    await sleep(1000);
+  }
+
+  onLog("Full scan complete.");
 }
 
 // ---------- Single-contact operations ----------
