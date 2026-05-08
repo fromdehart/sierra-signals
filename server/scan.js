@@ -15,6 +15,7 @@ const OPENAI_MODEL = "gpt-5-mini";
 // "openai" → OpenAI API, "anthropic" → Anthropic API, default → Claude Agent subprocess
 async function classifyText(systemPrompt, content, aiProvider) {
   if (aiProvider === "openai" && process.env.OPENAI_API_KEY) {
+    console.log("[classifyText] using OpenAI (" + OPENAI_MODEL + ")");
     const { default: OpenAI } = await import("openai");
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const msg = await client.chat.completions.create({
@@ -25,9 +26,11 @@ async function classifyText(systemPrompt, content, aiProvider) {
         { role: "user", content },
       ],
     });
+    console.log("[classifyText] OpenAI tokens:", msg.usage?.total_tokens);
     return msg.choices[0]?.message?.content ?? "";
   }
   if (aiProvider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    console.log("[classifyText] using Anthropic (claude-sonnet-4-6)");
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const msg = await client.messages.create({
@@ -40,6 +43,7 @@ async function classifyText(systemPrompt, content, aiProvider) {
   }
   // Default: auto-select best available
   if (process.env.ANTHROPIC_API_KEY) {
+    console.log("[classifyText] auto → Anthropic (claude-sonnet-4-6)");
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const msg = await client.messages.create({
@@ -50,6 +54,7 @@ async function classifyText(systemPrompt, content, aiProvider) {
     });
     return msg.content[0]?.text ?? "";
   }
+  console.log("[classifyText] auto → Claude Agent subprocess (aiProvider=" + aiProvider + ")");
   return agentProvider.classify(systemPrompt, content);
 }
 
