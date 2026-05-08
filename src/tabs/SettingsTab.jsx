@@ -1,8 +1,30 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { parseCSV } from "../lib/scan.js";
 import { AI_PROVIDER_LABELS } from "../lib/constants.js";
+import { getGmailStatus, disconnectGmail } from "../lib/api.js";
 
 export default function SettingsTab({ accounts, onImport, onClear, aiProvider, onAiProviderChange, availableProviders }) {
+  const [gmailStatus, setGmailStatus] = useState({ connected: false, configured: false });
+
+  useEffect(() => {
+    getGmailStatus().then(setGmailStatus).catch(() => {});
+
+    // Listen for OAuth popup success
+    function onMsg(e) {
+      if (e.data === "gmail-auth-ok") getGmailStatus().then(setGmailStatus);
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  function connectGmail() {
+    window.open("http://localhost:3002/auth/google", "gmail-auth", "width=500,height=650,left=200,top=100");
+  }
+
+  async function handleDisconnect() {
+    await disconnectGmail();
+    setGmailStatus(s => ({ ...s, connected: false }));
+  }
   const fileRef = useRef(null);
 
   const totalSignals = accounts.reduce((n, a) => n + (a.signals || []).length, 0);
@@ -111,6 +133,36 @@ export default function SettingsTab({ accounts, onImport, onClear, aiProvider, o
             );
           })}
         </div>
+      </Card>
+
+      {/* Gmail */}
+      <Card title="Gmail Integration" style={{ marginTop: 16 }}>
+        {!gmailStatus.configured ? (
+          <p style={{ color: "#6b7280", fontSize: 13 }}>
+            Add <code style={{ background: "#f3f4f6", padding: "1px 4px", borderRadius: 3 }}>GOOGLE_CLIENT_ID</code> and <code style={{ background: "#f3f4f6", padding: "1px 4px", borderRadius: 3 }}>GOOGLE_CLIENT_SECRET</code> to your <code style={{ background: "#f3f4f6", padding: "1px 4px", borderRadius: 3 }}>.env</code> file to enable Gmail draft creation.
+          </p>
+        ) : gmailStatus.connected ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 13, color: "#16a34a", fontWeight: 600 }}>✓ Gmail connected</span>
+            <button onClick={handleDisconnect}
+              style={{ padding: "4px 12px", fontSize: 12, borderRadius: 5, border: "1px solid #d1d5db", background: "#ffffff", color: "#6b7280", cursor: "pointer" }}>
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <div>
+            <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>
+              Connect Gmail to create drafts directly from outreach touches — no copy-paste needed.
+            </p>
+            <button onClick={connectGmail}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", borderRadius: 7, border: "1px solid #d1d5db", background: "#ffffff", color: "#374151", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22 6C22 4.9 21.1 4 20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6ZM20 6L12 11L4 6H20ZM20 18H4V8L12 13L20 8V18Z" fill="#EA4335"/>
+              </svg>
+              Connect Gmail
+            </button>
+          </div>
+        )}
       </Card>
 
       {/* Data summary */}

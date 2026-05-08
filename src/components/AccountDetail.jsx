@@ -4,6 +4,7 @@ import HealthDots from "./HealthDots.jsx";
 import { calcScore, scoreColor, relDate } from "../lib/scoring.js";
 import { CAT_COLORS, STATUS_COLORS, STATUSES, PROVIDER_LABELS } from "../lib/constants.js";
 import { runFullScan, runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, enrichContact, generateOutreach } from "../lib/scan.js";
+import { createGmailDraft } from "../lib/api.js";
 
 export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCriteria, msgCriteria, provider, onProviderChange, aiProvider, availableProviders }) {
   const [activeStep, setActiveStep] = useState(null);
@@ -191,6 +192,8 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
 function ContactCard({ contact, acct, provider, aiProvider, msgCriteria, expanded, onToggle, onUpdate }) {
   const [enriching, setEnriching] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [draftMsg, setDraftMsg] = useState("");
   const [activeTouch, setActiveTouch] = useState(0);
   const sc = STATUS_COLORS[contact.status] || STATUS_COLORS["Not started"];
 
@@ -215,6 +218,20 @@ function ContactCard({ contact, acct, provider, aiProvider, msgCriteria, expande
       onUpdate({ ...contact, outreach });
     } catch (e) { console.error(e); }
     setGenerating(false);
+  }
+
+  async function doDraft(touch) {
+    setDrafting(true);
+    setDraftMsg("");
+    try {
+      await createGmailDraft({ subject: touch.subject, body: touch.body });
+      setDraftMsg("Draft saved to Gmail");
+      setTimeout(() => setDraftMsg(""), 3000);
+    } catch (e) {
+      setDraftMsg(e.message.includes("not connected") ? "Connect Gmail in Settings first" : "Error: " + e.message);
+      setTimeout(() => setDraftMsg(""), 4000);
+    }
+    setDrafting(false);
   }
 
   const touch = contact.outreach?.[activeTouch];
@@ -301,15 +318,20 @@ function ContactCard({ contact, acct, provider, aiProvider, msgCriteria, expande
                 <div style={{ background: "#f8fafc", borderRadius: 7, padding: "10px 12px" }}>
                   <div style={{ fontWeight: 600, fontSize: 13, color: "#111827", marginBottom: 6 }}>{touch.subject}</div>
                   <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 8 }}>{touch.body}</div>
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <button onClick={() => copyText(touch.subject + "\n\n" + touch.body)}
                       style={{ padding: "3px 10px", fontSize: 12, borderRadius: 5, border: "1px solid #d1d5db", background: "#ffffff", color: "#374151", cursor: "pointer" }}>
                       Copy
                     </button>
                     <a href={gmailLink(touch.subject, touch.body)} target="_blank" rel="noopener noreferrer"
                       style={{ padding: "3px 10px", fontSize: 12, borderRadius: 5, border: "1px solid #d1d5db", background: "#ffffff", color: "#374151", textDecoration: "none" }}>
-                      Gmail
+                      Compose
                     </a>
+                    <button onClick={() => doDraft(touch)} disabled={drafting}
+                      style={{ padding: "3px 10px", fontSize: 12, borderRadius: 5, border: "1px solid #22c55e", background: drafting ? "#f9fafb" : "#f0fdf4", color: drafting ? "#9ca3af" : "#16a34a", cursor: drafting ? "not-allowed" : "pointer", fontWeight: 600 }}>
+                      {drafting ? "Saving..." : "→ Draft"}
+                    </button>
+                    {draftMsg && <span style={{ fontSize: 11, color: draftMsg.startsWith("Error") || draftMsg.startsWith("Connect") ? "#dc2626" : "#16a34a" }}>{draftMsg}</span>}
                   </div>
                 </div>
               )}

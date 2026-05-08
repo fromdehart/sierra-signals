@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { runOneSignalSearch, classifySignalResults, runCombinedAgentScan, runContactScan, runEnrichment, runOutreach } from "./scan.js";
 import { dbLoadAllAccounts, dbSaveAccount, dbDeleteAccount, dbLoadSettings, dbSaveSetting } from "./db.js";
+import { getAuthUrl, exchangeCode, saveTokens, loadTokens, createDraft } from "./gmail.js";
 
 dotenv.config();
 
@@ -145,6 +146,63 @@ app.post("/api/scan/outreach", async (req, res) => {
     console.error("[outreach]", e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---------- Gmail OAuth ----------
+
+app.get("/auth/google", (_req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(400).send("GOOGLE_CLIENT_ID not set in .env");
+  res.redirect(getAuthUrl());
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error) return res.send("<script>window.opener?.postMessage('gmail-auth-error','*');window.close();</script>");
+  try {
+    const tokens = await exchangeCode(code);
+    saveTokens(tokens);
+    res.send("<script>window.opener?.postMessage('gmail-auth-ok','*');window.close();</script>");
+  } catch (e) {
+    console.error("[gmail] auth error:", e);
+    res.send("<script>window.opener?.postMessage('gmail-auth-error','*');window.close();</script>");
+  }
+});
+
+app.get("/api/gmail/status", (_req, res) => {
+  const tokens = loadTokens();
+  res.json({ connected: !!tokens?.access_token, configured: !!process.env.GOOGLE_CLIENT_ID });
+});
+
+app.delete("/api/gmail/disconnect", (_req, res) => {
+  dbSaveSetting("gmailTokens", null);
+  res.json({ ok: true });
+});
+
+app.post("/api/gmail/draft", async (req, res) => {
+  const { to, subject, body } = req.body;
+  if (!subject || !body) return res.status(400).json({ error: "subject and body required" });
+  try {
+    await createDraft({ to, subject, body });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[gmail] draft error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/gmail/drafts-bulk", async (req, res) => {
+  const { drafts } = req.body; // [{ to, subject, body }]
+  if (!Array.isArray(drafts)) return res.status(400).json({ error: "drafts array required" });
+  const results = [];
+  for (const d of drafts) {
+    try {
+      await createDraft(d);
+      results.push({ ok: true });
+    } catch (e) {
+      results.push({ ok: false, error: e.message });
+    }
+  }
+  res.json({ results, created: results.filter(r => r.ok).length });
 });
 
 const PORT = process.env.PORT || 3002;

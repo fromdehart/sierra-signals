@@ -23,6 +23,8 @@ existing_brave=$(grep -E "^BRAVE_API_KEY=" .env | cut -d= -f2-)
 existing_tavily=$(grep -E "^TAVILY_API_KEY=" .env | cut -d= -f2-)
 existing_anthropic=$(grep -E "^ANTHROPIC_API_KEY=" .env | cut -d= -f2-)
 existing_openai=$(grep -E "^OPENAI_API_KEY=" .env | cut -d= -f2-)
+existing_gclient=$(grep -E "^GOOGLE_CLIENT_ID=" .env | cut -d= -f2-)
+existing_gsecret=$(grep -E "^GOOGLE_CLIENT_SECRET=" .env | cut -d= -f2-)
 
 echo "Search provider API keys (press Enter to skip / keep existing):"
 echo ""
@@ -97,6 +99,44 @@ elif [ -n "$existing_openai" ]; then
   echo "  ✓ Keeping existing OpenAI key"
 else
   echo "  — Skipped (OpenAI provider will be disabled)"
+fi
+
+echo ""
+echo "Google OAuth credentials (enables Gmail draft creation):"
+echo ""
+
+# Google Client ID
+if [ -n "$existing_gclient" ]; then
+  prompt_gclient="Google Client ID [current: ${existing_gclient:0:8}...]: "
+else
+  prompt_gclient="Google Client ID (console.cloud.google.com): "
+fi
+read -r -p "$prompt_gclient" input_gclient
+if [ -n "$input_gclient" ]; then
+  sed -i "s|^GOOGLE_CLIENT_ID=.*|GOOGLE_CLIENT_ID=$input_gclient|" .env
+  echo "  ✓ Google Client ID saved"
+elif [ -n "$existing_gclient" ]; then
+  echo "  ✓ Keeping existing Google Client ID"
+else
+  echo "  — Skipped (Gmail integration will be disabled)"
+fi
+
+echo ""
+
+# Google Client Secret
+if [ -n "$existing_gsecret" ]; then
+  prompt_gsecret="Google Client Secret [current: ${existing_gsecret:0:8}...]: "
+else
+  prompt_gsecret="Google Client Secret: "
+fi
+read -r -p "$prompt_gsecret" input_gsecret
+if [ -n "$input_gsecret" ]; then
+  sed -i "s|^GOOGLE_CLIENT_SECRET=.*|GOOGLE_CLIENT_SECRET=$input_gsecret|" .env
+  echo "  ✓ Google Client Secret saved"
+elif [ -n "$existing_gsecret" ]; then
+  echo "  ✓ Keeping existing Google Client Secret"
+else
+  echo "  — Skipped"
 fi
 
 echo ""

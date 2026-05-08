@@ -75,3 +75,23 @@ export async function scanOutreach(contact, account, signals, msgCriteria, provi
   const data = await post("/scan/outreach", { contact, account, signals, msgCriteria, provider, aiProvider });
   return data.outreach ?? [];
 }
+
+// ---------- Gmail ----------
+
+export async function getGmailStatus() {
+  const res = await fetch(BASE + "/gmail/status");
+  return res.json(); // { connected, configured }
+}
+
+export async function disconnectGmail() {
+  const res = await fetch(BASE + "/gmail/disconnect", { method: "DELETE" });
+  return res.json();
+}
+
+export async function createGmailDraft({ to, subject, body }) {
+  return post("/gmail/draft", { to, subject, body });
+}
+
+export async function createGmailDraftsBulk(drafts) {
+  return post("/gmail/drafts-bulk", { drafts });
+}
