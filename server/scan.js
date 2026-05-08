@@ -9,7 +9,7 @@ function getProvider(name) {
   return agentProvider;
 }
 
-const OPENAI_MODEL = "gpt-4o-mini";
+const OPENAI_MODEL = "gpt-5-mini";
 
 // Classification: aiProvider controls which LLM is used
 // "openai" → OpenAI API, "anthropic" → Anthropic API, default → Claude Agent subprocess

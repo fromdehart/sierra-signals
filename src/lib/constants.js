@@ -38,7 +38,7 @@ export const PROVIDER_LABELS = {
 export const AI_PROVIDER_LABELS = {
   auto: "Auto (best available)",
   anthropic: "Claude Sonnet (Anthropic API)",
-  openai: "OpenAI (gpt-4o-mini)",
+  openai: "OpenAI (gpt-5-mini)",
   agent: "Claude Agent (subprocess)",
 };
 
