@@ -19,7 +19,7 @@ async function classifyText(systemPrompt, content, aiProvider) {
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const msg = await client.chat.completions.create({
       model: OPENAI_MODEL,
-      max_tokens: 4096,
+      max_completion_tokens: 4096,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content },
