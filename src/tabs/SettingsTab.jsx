@@ -9,17 +9,13 @@ export default function SettingsTab({ accounts, onImport, onClear, aiProvider, o
   useEffect(() => {
     getGmailStatus().then(setGmailStatus).catch(() => {});
 
-    // Listen for OAuth popup success
-    function onMsg(e) {
-      if (e.data === "gmail-auth-ok") getGmailStatus().then(setGmailStatus);
-    }
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, []);
-
-  function connectGmail() {
-    window.open("http://localhost:3002/auth/google", "gmail-auth", "width=500,height=650,left=200,top=100");
-  }
+    // Poll every 4s when not connected so page updates automatically after server-side auth
+    const interval = setInterval(() => {
+      if (gmailStatus.connected) return;
+      getGmailStatus().then(setGmailStatus).catch(() => {});
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [gmailStatus.connected]);
 
   async function handleDisconnect() {
     await disconnectGmail();
@@ -151,16 +147,15 @@ export default function SettingsTab({ accounts, onImport, onClear, aiProvider, o
           </div>
         ) : (
           <div>
-            <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>
-              Connect Gmail to create drafts directly from outreach touches — no copy-paste needed.
+            <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 10 }}>
+              Connect Gmail to create drafts directly from outreach touches. Because this app runs locally, you need to authorize once in a browser <strong>on the server machine</strong> (where the server is running).
             </p>
-            <button onClick={connectGmail}
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", borderRadius: 7, border: "1px solid #d1d5db", background: "#ffffff", color: "#374151", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M22 6C22 4.9 21.1 4 20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6ZM20 6L12 11L4 6H20ZM20 18H4V8L12 13L20 8V18Z" fill="#EA4335"/>
-              </svg>
-              Connect Gmail
-            </button>
+            <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6, padding: "10px 14px", marginBottom: 12, fontFamily: "monospace", fontSize: 13, color: "#1d4ed8" }}>
+              http://localhost:3002/auth/google
+            </div>
+            <p style={{ color: "#9ca3af", fontSize: 12, marginBottom: 0 }}>
+              Open that URL on the server machine → authorize → this page will update automatically.
+            </p>
           </div>
         )}
       </Card>
