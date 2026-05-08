@@ -152,7 +152,8 @@ app.post("/api/scan/outreach", async (req, res) => {
 
 app.get("/auth/google", (_req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(400).send("GOOGLE_CLIENT_ID not set in .env");
-  res.redirect(getAuthUrl());
+  // Redirect via 127.0.0.1 — Google OAuth requires this for Desktop app clients
+  res.redirect(getAuthUrl().replace("localhost", "127.0.0.1"));
 });
 
 app.get("/auth/google/callback", async (req, res) => {
