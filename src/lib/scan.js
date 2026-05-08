@@ -19,7 +19,7 @@ function tierOrder(acct) {
 
 // ---------- Signal Scan ----------
 
-async function scanOneAccount(acct, idx, total, sigCriteria, provider, onLog, onAccountDone) {
+async function scanOneAccount(acct, idx, total, sigCriteria, provider, aiProvider, onLog, onAccountDone) {
   const name = acct["Account Name"] || acct.id;
   const tag = "[" + (idx + 1) + "/" + total + "] " + name;
   onLog(tag);
@@ -61,7 +61,7 @@ async function scanOneAccount(acct, idx, total, sigCriteria, provider, onLog, on
         const ticker = setInterval(() => onLog("    [" + r.label + "] still classifying..."), 10000);
         let bucketSigs = [];
         try {
-          bucketSigs = await api.classifySignals(current, [r], sigCriteria);
+          bucketSigs = await api.classifySignals(current, [r], sigCriteria, aiProvider);
         } catch (e) {
           onLog("    [" + r.label + "] classify error: " + e.message);
         } finally {
@@ -85,7 +85,7 @@ async function scanOneAccount(acct, idx, total, sigCriteria, provider, onLog, on
   }
 }
 
-export async function runBulkSignalScan({ accounts, sigCriteria, provider, onLog, onAccountDone, shouldStop }) {
+export async function runBulkSignalScan({ accounts, sigCriteria, provider, aiProvider, onLog, onAccountDone, shouldStop }) {
   const sorted = [...accounts].sort((a, b) => tierOrder(a) - tierOrder(b));
   const BATCH = 2;
 
@@ -93,7 +93,7 @@ export async function runBulkSignalScan({ accounts, sigCriteria, provider, onLog
     if (shouldStop()) break;
     const batch = sorted.slice(i, i + BATCH);
     await Promise.all(
-      batch.map((acct, j) => scanOneAccount(acct, i + j, sorted.length, sigCriteria, provider, onLog, onAccountDone))
+      batch.map((acct, j) => scanOneAccount(acct, i + j, sorted.length, sigCriteria, provider, aiProvider, onLog, onAccountDone))
     );
     if (i + BATCH < sorted.length && !shouldStop()) {
       onLog("Waiting 5s before next batch...");
@@ -106,7 +106,7 @@ export async function runBulkSignalScan({ accounts, sigCriteria, provider, onLog
 
 // ---------- Contact ID ----------
 
-export async function runBulkContactScan({ accounts, provider, onLog, onAccountDone, shouldStop }) {
+export async function runBulkContactScan({ accounts, provider, aiProvider, onLog, onAccountDone, shouldStop }) {
   const sorted = [...accounts].sort((a, b) => tierOrder(a) - tierOrder(b));
 
   for (let i = 0; i < sorted.length; i++) {
@@ -115,7 +115,7 @@ export async function runBulkContactScan({ accounts, provider, onLog, onAccountD
     onLog("Finding contacts: " + (acct["Account Name"] || acct.id));
 
     try {
-      const newContacts = await api.scanContacts(acct, provider);
+      const newContacts = await api.scanContacts(acct, provider, aiProvider);
       const updated = { ...acct, contacts: newContacts };
       onAccountDone(updated);
       onLog("  Found " + newContacts.length + " contact(s)");
@@ -131,7 +131,7 @@ export async function runBulkContactScan({ accounts, provider, onLog, onAccountD
 
 // ---------- Enrichment ----------
 
-export async function runBulkEnrichment({ accounts, provider, onLog, onAccountDone, shouldStop }) {
+export async function runBulkEnrichment({ accounts, provider, aiProvider, onLog, onAccountDone, shouldStop }) {
   for (const acct of accounts) {
     if (shouldStop()) break;
     const contacts = acct.contacts || [];
@@ -149,7 +149,7 @@ export async function runBulkEnrichment({ accounts, provider, onLog, onAccountDo
       onLog("Enriching " + contact.name + " at " + (acct["Account Name"] || acct.id));
 
       try {
-        const enrichData = await api.scanEnrich(contact, acct, provider);
+        const enrichData = await api.scanEnrich(contact, acct, provider, aiProvider);
         const idx = updatedContacts.findIndex(c => c.id === contact.id);
         if (idx >= 0 && enrichData) {
           updatedContacts[idx] = { ...updatedContacts[idx], ...enrichData };
@@ -170,7 +170,7 @@ export async function runBulkEnrichment({ accounts, provider, onLog, onAccountDo
 
 // ---------- Outreach ----------
 
-export async function runBulkOutreach({ accounts, msgCriteria, provider, onLog, onAccountDone, shouldStop }) {
+export async function runBulkOutreach({ accounts, msgCriteria, provider, aiProvider, onLog, onAccountDone, shouldStop }) {
   for (const acct of accounts) {
     if (shouldStop()) break;
     const contacts = acct.contacts || [];
@@ -188,7 +188,7 @@ export async function runBulkOutreach({ accounts, msgCriteria, provider, onLog, 
       onLog("Generating outreach for " + contact.name + " at " + (acct["Account Name"] || acct.id));
 
       try {
-        const outreach = await api.scanOutreach(contact, acct, acct.signals, msgCriteria, provider);
+        const outreach = await api.scanOutreach(contact, acct, acct.signals, msgCriteria, provider, aiProvider);
         const idx = updatedContacts.findIndex(c => c.id === contact.id);
         if (idx >= 0) {
           updatedContacts[idx] = { ...updatedContacts[idx], outreach };
@@ -209,17 +209,17 @@ export async function runBulkOutreach({ accounts, msgCriteria, provider, onLog, 
 
 // ---------- Full single-account scan (all 4 steps in sequence) ----------
 
-export async function runFullScan({ account, sigCriteria, msgCriteria, provider, onLog, onAccountDone, shouldStop }) {
+export async function runFullScan({ account, sigCriteria, msgCriteria, provider, aiProvider, onLog, onAccountDone, shouldStop }) {
   let current = account;
   const track = (updated) => { current = updated; onAccountDone(updated); };
 
   onLog("=== Step 1/4: Signal Scan ===");
-  await scanOneAccount(current, 0, 1, sigCriteria, provider, onLog, track);
+  await scanOneAccount(current, 0, 1, sigCriteria, provider, aiProvider, onLog, track);
   if (shouldStop?.()) { onLog("Stopped."); return; }
 
   onLog("=== Step 2/4: Contact ID ===");
   try {
-    const newContacts = await api.scanContacts(current, provider);
+    const newContacts = await api.scanContacts(current, provider, aiProvider);
     current = { ...current, contacts: newContacts };
     onAccountDone(current);
     onLog("  Found " + newContacts.length + " contact(s)");
@@ -233,7 +233,7 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
     if (shouldStop?.()) break;
     onLog("  Enriching " + contact.name + "...");
     try {
-      const data = await api.scanEnrich(contact, current, provider);
+      const data = await api.scanEnrich(contact, current, provider, aiProvider);
       if (data) {
         current = { ...current, contacts: current.contacts.map(c => c.id === contact.id ? { ...c, ...data } : c) };
         onAccountDone(current);
@@ -248,7 +248,7 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
     if (shouldStop?.()) break;
     onLog("  Generating outreach for " + contact.name + "...");
     try {
-      const outreach = await api.scanOutreach(contact, current, current.signals, msgCriteria, provider);
+      const outreach = await api.scanOutreach(contact, current, current.signals, msgCriteria, provider, aiProvider);
       current = { ...current, contacts: current.contacts.map(c => c.id === contact.id ? { ...c, outreach } : c) };
       onAccountDone(current);
     } catch (e) { onLog("  Error: " + e.message); }
@@ -260,12 +260,12 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
 
 // ---------- Single-contact operations ----------
 
-export async function enrichContact(contact, acct, provider) {
-  return api.scanEnrich(contact, acct, provider);
+export async function enrichContact(contact, acct, provider, aiProvider) {
+  return api.scanEnrich(contact, acct, provider, aiProvider);
 }
 
-export async function generateOutreach(contact, acct, signals, msgCriteria, provider) {
-  return api.scanOutreach(contact, acct, signals, msgCriteria, provider);
+export async function generateOutreach(contact, acct, signals, msgCriteria, provider, aiProvider) {
+  return api.scanOutreach(contact, acct, signals, msgCriteria, provider, aiProvider);
 }
 
 // ---------- CSV Import ----------

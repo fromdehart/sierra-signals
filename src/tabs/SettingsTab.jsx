@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { parseCSV } from "../lib/scan.js";
+import { AI_PROVIDER_LABELS } from "../lib/constants.js";
 
-export default function SettingsTab({ accounts, onImport, onClear }) {
+export default function SettingsTab({ accounts, onImport, onClear, aiProvider, onAiProviderChange, availableProviders }) {
   const fileRef = useRef(null);
 
   const totalSignals = accounts.reduce((n, a) => n + (a.signals || []).length, 0);
@@ -73,6 +74,43 @@ export default function SettingsTab({ accounts, onImport, onClear }) {
         >
           Choose CSV File
         </button>
+      </Card>
+
+      {/* AI Provider */}
+      <Card title="AI Provider (Classification &amp; Outreach)" style={{ marginTop: 16 }}>
+        <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>
+          Choose which AI model is used for signal classification, contact extraction, enrichment, and outreach generation.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {Object.entries(AI_PROVIDER_LABELS).map(([key, label]) => {
+            const available =
+              key === "auto" ? true :
+              key === "anthropic" ? availableProviders?.anthropic :
+              key === "openai" ? availableProviders?.openai :
+              true; // agent always available
+            const active = (aiProvider || "auto") === key;
+            return (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 10, cursor: available ? "pointer" : "not-allowed", opacity: available ? 1 : 0.5 }}>
+                <input
+                  type="radio"
+                  name="aiProvider"
+                  value={key}
+                  checked={active}
+                  disabled={!available}
+                  onChange={() => available && onAiProviderChange(key)}
+                />
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: "#111827" }}>{label}</span>
+                  {!available && (
+                    <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 6 }}>
+                      {key === "anthropic" ? "(add ANTHROPIC_API_KEY to .env)" : "(add OPENAI_API_KEY to .env)"}
+                    </span>
+                  )}
+                </div>
+              </label>
+            );
+          })}
+        </div>
       </Card>
 
       {/* Data summary */}

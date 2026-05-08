@@ -35,6 +35,13 @@ export const PROVIDER_LABELS = {
   tavily: "Tavily",
 };
 
+export const AI_PROVIDER_LABELS = {
+  auto: "Auto (best available)",
+  anthropic: "Claude Sonnet (Anthropic API)",
+  openai: "OpenAI (gpt-4o-mini)",
+  agent: "Claude Agent (subprocess)",
+};
+
 export const DEFAULT_SIG_CRITERIA = `You are a signal detector for Sierra AI — an AI-powered customer service and support automation platform.
 
 SIGNAL CATEGORIES (use these exact names):

@@ -15,6 +15,7 @@ export default function AccountsTab({
   msgCriteria,
   provider,
   onProviderChange,
+  aiProvider,
   availableProviders,
   onAccountUpdated,
   onImport,
@@ -83,6 +84,7 @@ export default function AccountsTab({
         msgCriteria={msgCriteria}
         provider={provider}
         onProviderChange={onProviderChange}
+        aiProvider={aiProvider}
         availableProviders={availableProviders}
       />
     );
@@ -106,6 +108,7 @@ export default function AccountsTab({
         msgCriteria={msgCriteria}
         provider={provider}
         onProviderChange={onProviderChange}
+        aiProvider={aiProvider}
         availableProviders={availableProviders}
         onAccountUpdated={onAccountUpdated}
       />

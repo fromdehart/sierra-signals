@@ -8,7 +8,7 @@ dotenv.config();
 
 const app = express();
 app.use(cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"] }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 // ---------- Data persistence ----------
 
@@ -28,6 +28,10 @@ app.post("/api/data/account", (req, res) => {
   if (!account?.id) return res.status(400).json({ error: "account.id required" });
   try {
     dbSaveAccount(account);
+    const contacts = account.contacts || [];
+    const enriched = contacts.filter(c => c.enrichment).length;
+    const outreach = contacts.filter(c => c.outreach?.length).length;
+    console.log("[save]", account["Account Name"] || account.id, "| sigs:", (account.signals || []).length, "| contacts:", contacts.length, "| enriched:", enriched, "| outreach:", outreach);
     res.json({ ok: true });
   } catch (e) {
     console.error("[data] save account error:", e);
@@ -63,7 +67,8 @@ app.get("/api/providers", (_req, res) => {
     agent: true,
     brave: !!process.env.BRAVE_API_KEY,
     tavily: !!process.env.TAVILY_API_KEY,
-    fastClassify: !!process.env.ANTHROPIC_API_KEY,
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+    openai: !!process.env.OPENAI_API_KEY,
   });
 });
 
@@ -95,10 +100,10 @@ app.post("/api/scan/signals-combined", async (req, res) => {
 
 // Step 2: classify the combined search results into signals
 app.post("/api/scan/classify-signals", async (req, res) => {
-  const { account, searchResults, sigCriteria } = req.body;
+  const { account, searchResults, sigCriteria, aiProvider } = req.body;
   if (!account || !searchResults) return res.status(400).json({ error: "account and searchResults required" });
   try {
-    const signals = await classifySignalResults(account, searchResults, sigCriteria);
+    const signals = await classifySignalResults(account, searchResults, sigCriteria, aiProvider);
     res.json({ signals });
   } catch (e) {
     console.error("[classify-signals]", e);
@@ -107,10 +112,10 @@ app.post("/api/scan/classify-signals", async (req, res) => {
 });
 
 app.post("/api/scan/contacts", async (req, res) => {
-  const { account, provider } = req.body;
+  const { account, provider, aiProvider } = req.body;
   if (!account) return res.status(400).json({ error: "account required" });
   try {
-    const contacts = await runContactScan(account, provider || "agent");
+    const contacts = await runContactScan(account, provider || "agent", aiProvider);
     res.json({ contacts });
   } catch (e) {
     console.error("[contacts]", e);
@@ -119,10 +124,10 @@ app.post("/api/scan/contacts", async (req, res) => {
 });
 
 app.post("/api/scan/enrich", async (req, res) => {
-  const { contact, account, provider } = req.body;
+  const { contact, account, provider, aiProvider } = req.body;
   if (!contact || !account) return res.status(400).json({ error: "contact and account required" });
   try {
-    const enrichment = await runEnrichment(contact, account, provider || "agent");
+    const enrichment = await runEnrichment(contact, account, provider || "agent", aiProvider);
     res.json({ enrichment });
   } catch (e) {
     console.error("[enrich]", e);
@@ -131,10 +136,10 @@ app.post("/api/scan/enrich", async (req, res) => {
 });
 
 app.post("/api/scan/outreach", async (req, res) => {
-  const { contact, account, signals, msgCriteria, provider } = req.body;
+  const { contact, account, signals, msgCriteria, provider, aiProvider } = req.body;
   if (!contact || !account) return res.status(400).json({ error: "contact and account required" });
   try {
-    const outreach = await runOutreach(contact, account, signals, msgCriteria, provider || "agent");
+    const outreach = await runOutreach(contact, account, signals, msgCriteria, aiProvider);
     res.json({ outreach });
   } catch (e) {
     console.error("[outreach]", e);
@@ -145,5 +150,6 @@ app.post("/api/scan/outreach", async (req, res) => {
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
   console.log("Sierra Signals server running on http://localhost:" + PORT);
-  console.log("Providers: agent=yes brave=" + (!!process.env.BRAVE_API_KEY) + " tavily=" + (!!process.env.TAVILY_API_KEY));
+  console.log("Search: agent=yes brave=" + (!!process.env.BRAVE_API_KEY) + " tavily=" + (!!process.env.TAVILY_API_KEY));
+  console.log("AI classify: anthropic=" + (!!process.env.ANTHROPIC_API_KEY) + " openai=" + (!!process.env.OPENAI_API_KEY));
 });

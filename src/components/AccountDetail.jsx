@@ -5,7 +5,7 @@ import { calcScore, scoreColor, relDate } from "../lib/scoring.js";
 import { CAT_COLORS, STATUS_COLORS, STATUSES, PROVIDER_LABELS } from "../lib/constants.js";
 import { runFullScan, runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, enrichContact, generateOutreach } from "../lib/scan.js";
 
-export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCriteria, msgCriteria, provider, onProviderChange, availableProviders }) {
+export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCriteria, msgCriteria, provider, onProviderChange, aiProvider, availableProviders }) {
   const [activeStep, setActiveStep] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [log, setLog] = useState([]);
@@ -33,15 +33,15 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
     setScanOpen(true);
     try {
       if (stepId === "full") {
-        await runFullScan({ account: acct, sigCriteria, msgCriteria, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runFullScan({ account: acct, sigCriteria, msgCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (stepId === "signals") {
-        await runBulkSignalScan({ accounts: [acct], sigCriteria, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkSignalScan({ accounts: [acct], sigCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (stepId === "contacts") {
-        await runBulkContactScan({ accounts: [acct], provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkContactScan({ accounts: [acct], provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (stepId === "enrichment") {
-        await runBulkEnrichment({ accounts: [acct], provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkEnrichment({ accounts: [acct], provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (stepId === "outreach") {
-        await runBulkOutreach({ accounts: [acct], msgCriteria, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkOutreach({ accounts: [acct], msgCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       }
     } catch (e) {
       addLog("Error: " + e.message);
@@ -173,6 +173,7 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
                   contact={c}
                   acct={acct}
                   provider={provider}
+                  aiProvider={aiProvider}
                   msgCriteria={msgCriteria}
                   expanded={!!expandedContacts[c.id]}
                   onToggle={() => toggleContact(c.id)}
@@ -187,7 +188,7 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
   );
 }
 
-function ContactCard({ contact, acct, provider, msgCriteria, expanded, onToggle, onUpdate }) {
+function ContactCard({ contact, acct, provider, aiProvider, msgCriteria, expanded, onToggle, onUpdate }) {
   const [enriching, setEnriching] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [activeTouch, setActiveTouch] = useState(0);
@@ -201,7 +202,7 @@ function ContactCard({ contact, acct, provider, msgCriteria, expanded, onToggle,
   async function doEnrich() {
     setEnriching(true);
     try {
-      const data = await enrichContact(contact, acct, provider);
+      const data = await enrichContact(contact, acct, provider, aiProvider);
       if (data) onUpdate({ ...contact, ...data });
     } catch (e) { console.error(e); }
     setEnriching(false);
@@ -210,7 +211,7 @@ function ContactCard({ contact, acct, provider, msgCriteria, expanded, onToggle,
   async function doGenerate() {
     setGenerating(true);
     try {
-      const outreach = await generateOutreach(contact, acct, acct.signals, msgCriteria, provider);
+      const outreach = await generateOutreach(contact, acct, acct.signals, msgCriteria, provider, aiProvider);
       onUpdate({ ...contact, outreach });
     } catch (e) { console.error(e); }
     setGenerating(false);

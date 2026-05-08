@@ -9,8 +9,36 @@ function getProvider(name) {
   return agentProvider;
 }
 
-// Classification: use Anthropic SDK directly if key is set (~5-10s vs ~90s subprocess)
-async function classifyText(systemPrompt, content) {
+const OPENAI_MODEL = "gpt-4o-mini";
+
+// Classification: aiProvider controls which LLM is used
+// "openai" → OpenAI API, "anthropic" → Anthropic API, default → Claude Agent subprocess
+async function classifyText(systemPrompt, content, aiProvider) {
+  if (aiProvider === "openai" && process.env.OPENAI_API_KEY) {
+    const { default: OpenAI } = await import("openai");
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const msg = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      max_tokens: 4096,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content },
+      ],
+    });
+    return msg.choices[0]?.message?.content ?? "";
+  }
+  if (aiProvider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const msg = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content }],
+    });
+    return msg.content[0]?.text ?? "";
+  }
+  // Default: auto-select best available
   if (process.env.ANTHROPIC_API_KEY) {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -76,7 +104,7 @@ export async function runOneSignalSearch(acct, typeId, providerName) {
 }
 
 // Classify step — called once after all 4 searches complete
-export async function classifySignalResults(acct, searchResults, sigCrit) {
+export async function classifySignalResults(acct, searchResults, sigCrit, aiProvider) {
   const today = new Date().toISOString().slice(0, 10);
   const co = acct["Account Name"] || "Unknown";
 
@@ -105,7 +133,7 @@ export async function classifySignalResults(acct, searchResults, sigCrit) {
     "\n\n" + combined +
     "\n\nReturn JSON array only.";
 
-  const raw = await classifyText(classifySystem, classifyContent);
+  const raw = await classifyText(classifySystem, classifyContent, aiProvider);
 
   console.log("[classify] bucket:", searchResults.map(r => r.label).join(","), "| raw length:", raw.length);
   console.log("[classify] raw response:\n" + raw.slice(0, 1000));
@@ -128,7 +156,7 @@ export async function classifySignalResults(acct, searchResults, sigCrit) {
 
 // ---------- Contact ID ----------
 
-export async function runContactScan(acct, providerName) {
+export async function runContactScan(acct, providerName, aiProvider) {
   const provider = getProvider(providerName);
   const co = acct["Account Name"] || "Unknown";
   const today = new Date().toISOString().slice(0, 10);
@@ -158,7 +186,7 @@ export async function runContactScan(acct, providerName) {
     "\n\n" + combined +
     "\n\nReturn JSON array only.";
 
-  const raw = await classifyText(system, content);
+  const raw = await classifyText(system, content, aiProvider);
 
   try {
     const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");
@@ -182,7 +210,7 @@ export async function runContactScan(acct, providerName) {
 
 // ---------- Contact Enrichment ----------
 
-export async function runEnrichment(contact, acct, providerName) {
+export async function runEnrichment(contact, acct, providerName, aiProvider) {
   const provider = getProvider(providerName);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -207,7 +235,7 @@ export async function runEnrichment(contact, acct, providerName) {
     "\n\nSearch results:\n" + searchResult +
     "\n\nReturn JSON only.";
 
-  const raw = await classifyText(system, content);
+  const raw = await classifyText(system, content, aiProvider);
 
   try {
     return JSON.parse(raw.replace(/```json|```/g, "").trim());
@@ -218,7 +246,7 @@ export async function runEnrichment(contact, acct, providerName) {
 
 // ---------- Outreach Generation ----------
 
-export async function runOutreach(contact, acct, signals, msgCrit) {
+export async function runOutreach(contact, acct, signals, msgCrit, aiProvider) {
   // Outreach is pure LLM — no search needed regardless of provider.
   const topSignals = (signals || [])
     .sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0))
@@ -240,7 +268,7 @@ export async function runOutreach(contact, acct, signals, msgCrit) {
     '\n\nReturn a JSON array of 3 email touches: [{ "touch": 1, "subject": string, "body": string }, ...]' +
     "\nNO MARKDOWN. JSON ARRAY ONLY.";
 
-  const raw = await agentProvider.classify(msgCrit, content);
+  const raw = await classifyText(msgCrit, content, aiProvider);
 
   try {
     const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim() || "[]");

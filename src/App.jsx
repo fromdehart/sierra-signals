@@ -15,7 +15,8 @@ export default function App() {
   const [sigCriteria, setSigCriteria] = useState(DEFAULT_SIG_CRITERIA);
   const [msgCriteria, setMsgCriteria] = useState(DEFAULT_MSG_CRITERIA);
   const [provider, setProvider] = useState("agent");
-  const [availableProviders, setAvailableProviders] = useState({ agent: true, brave: false, tavily: false });
+  const [aiProvider, setAiProvider] = useState("auto");
+  const [availableProviders, setAvailableProviders] = useState({ agent: true, brave: false, tavily: false, anthropic: false, openai: false });
   const [saveMsg, setSaveMsg] = useState("");
   const [serverOk, setServerOk] = useState(null);
 
@@ -26,6 +27,7 @@ export default function App() {
         if (settings?.sigCriteria) setSigCriteria(settings.sigCriteria);
         if (settings?.msgCriteria) setMsgCriteria(settings.msgCriteria);
         if (settings?.provider) setProvider(settings.provider);
+        if (settings?.aiProvider) setAiProvider(settings.aiProvider);
         return getProviders();
       })
       .then(p => { setAvailableProviders(p); setServerOk(true); })
@@ -46,6 +48,11 @@ export default function App() {
     saveSettingToDb("provider", p);
   }
 
+  function handleAiProviderChange(p) {
+    setAiProvider(p);
+    saveSettingToDb("aiProvider", p);
+  }
+
   function handleCriteriaChange(type, val) {
     if (type === "sig") setSigCriteria(val);
     else setMsgCriteria(val);
@@ -54,7 +61,7 @@ export default function App() {
   const handleAccountUpdated = useCallback((updated) => {
     setAccounts(prev => prev.map(a => a.id === updated.id ? updated : a));
     setSelectedAccount(prev => prev?.id === updated.id ? updated : prev);
-    saveAccountToDb(updated);
+    saveAccountToDb(updated).catch(e => console.error("[save]", e.message));
   }, []);
 
   function handleSelectAccount(acct) {
@@ -142,6 +149,7 @@ export default function App() {
             msgCriteria={msgCriteria}
             provider={provider}
             onProviderChange={handleProviderChange}
+            aiProvider={aiProvider}
             availableProviders={availableProviders}
             onAccountUpdated={handleAccountUpdated}
             onImport={handleImport}
@@ -151,7 +159,14 @@ export default function App() {
           <CriteriaTab sigCriteria={sigCriteria} msgCriteria={msgCriteria} onChange={handleCriteriaChange} />
         )}
         {tab === "Settings" && (
-          <SettingsTab accounts={accounts} onImport={handleImport} onClear={handleClear} />
+          <SettingsTab
+            accounts={accounts}
+            onImport={handleImport}
+            onClear={handleClear}
+            aiProvider={aiProvider}
+            onAiProviderChange={handleAiProviderChange}
+            availableProviders={availableProviders}
+          />
         )}
       </main>
     </div>

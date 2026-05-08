@@ -56,22 +56,22 @@ export async function scanSignalsCombined(account, sigCriteria) {
   return data.signals ?? [];
 }
 
-export async function classifySignals(account, searchResults, sigCriteria) {
-  const data = await post("/scan/classify-signals", { account, searchResults, sigCriteria });
+export async function classifySignals(account, searchResults, sigCriteria, aiProvider) {
+  const data = await post("/scan/classify-signals", { account, searchResults, sigCriteria, aiProvider });
   return data.signals ?? [];
 }
 
-export async function scanContacts(account, provider) {
-  const data = await post("/scan/contacts", { account, provider });
+export async function scanContacts(account, provider, aiProvider) {
+  const data = await post("/scan/contacts", { account, provider, aiProvider });
   return data.contacts ?? [];
 }
 
-export async function scanEnrich(contact, account, provider) {
-  const data = await post("/scan/enrich", { contact, account, provider });
+export async function scanEnrich(contact, account, provider, aiProvider) {
+  const data = await post("/scan/enrich", { contact, account, provider, aiProvider });
   return data.enrichment ?? null;
 }
 
-export async function scanOutreach(contact, account, signals, msgCriteria, provider) {
-  const data = await post("/scan/outreach", { contact, account, signals, msgCriteria, provider });
+export async function scanOutreach(contact, account, signals, msgCriteria, provider, aiProvider) {
+  const data = await post("/scan/outreach", { contact, account, signals, msgCriteria, provider, aiProvider });
   return data.outreach ?? [];
 }

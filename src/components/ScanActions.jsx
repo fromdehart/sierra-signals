@@ -16,6 +16,7 @@ export default function ScanActions({
   msgCriteria,
   provider,
   onProviderChange,
+  aiProvider,
   availableProviders,
   onAccountUpdated,
 }) {
@@ -49,13 +50,13 @@ export default function ScanActions({
 
     try {
       if (type === "signals") {
-        await runBulkSignalScan({ accounts: accts, sigCriteria, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkSignalScan({ accounts: accts, sigCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (type === "contacts") {
-        await runBulkContactScan({ accounts: accts, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkContactScan({ accounts: accts, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (type === "enrichment") {
-        await runBulkEnrichment({ accounts: accts, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkEnrichment({ accounts: accts, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (type === "outreach") {
-        await runBulkOutreach({ accounts: accts, msgCriteria, provider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+        await runBulkOutreach({ accounts: accts, msgCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       }
     } catch (e) {
       addLog("Error: " + e.message);
