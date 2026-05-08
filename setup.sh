@@ -21,6 +21,8 @@ fi
 # Read existing values so we can show them as defaults
 existing_brave=$(grep -E "^BRAVE_API_KEY=" .env | cut -d= -f2-)
 existing_tavily=$(grep -E "^TAVILY_API_KEY=" .env | cut -d= -f2-)
+existing_anthropic=$(grep -E "^ANTHROPIC_API_KEY=" .env | cut -d= -f2-)
+existing_openai=$(grep -E "^OPENAI_API_KEY=" .env | cut -d= -f2-)
 
 echo "Search provider API keys (press Enter to skip / keep existing):"
 echo ""
@@ -57,6 +59,44 @@ elif [ -n "$existing_tavily" ]; then
   echo "  ✓ Keeping existing Tavily key"
 else
   echo "  — Skipped (Tavily provider will be disabled)"
+fi
+
+echo ""
+echo "AI provider API keys (used for classification and outreach):"
+echo ""
+
+# Anthropic
+if [ -n "$existing_anthropic" ]; then
+  prompt_anthropic="Anthropic API key [current: ${existing_anthropic:0:8}...]: "
+else
+  prompt_anthropic="Anthropic API key (https://console.anthropic.com/): "
+fi
+read -r -p "$prompt_anthropic" input_anthropic
+if [ -n "$input_anthropic" ]; then
+  sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=$input_anthropic|" .env
+  echo "  ✓ Anthropic key saved"
+elif [ -n "$existing_anthropic" ]; then
+  echo "  ✓ Keeping existing Anthropic key"
+else
+  echo "  — Skipped (Anthropic AI provider will be disabled)"
+fi
+
+echo ""
+
+# OpenAI
+if [ -n "$existing_openai" ]; then
+  prompt_openai="OpenAI API key [current: ${existing_openai:0:8}...]: "
+else
+  prompt_openai="OpenAI API key (https://platform.openai.com/): "
+fi
+read -r -p "$prompt_openai" input_openai
+if [ -n "$input_openai" ]; then
+  sed -i "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$input_openai|" .env
+  echo "  ✓ OpenAI key saved"
+elif [ -n "$existing_openai" ]; then
+  echo "  ✓ Keeping existing OpenAI key"
+else
+  echo "  — Skipped (OpenAI provider will be disabled)"
 fi
 
 echo ""
