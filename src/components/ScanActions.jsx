@@ -179,7 +179,7 @@ export default function ScanActions({
           );
         })}
 
-        {/* Draft Emails — standalone, green */}
+        {/* Draft Emails */}
         {(() => {
           const isActive = activeType === "drafts";
           const disabled = count === 0 || (isScanning && !isActive);
@@ -188,11 +188,12 @@ export default function ScanActions({
               onClick={() => startScan("drafts")}
               disabled={disabled}
               style={{
-                padding: "7px 16px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
-                border: "1px solid " + (isActive ? "#3b82f6" : "#16a34a"),
-                background: isActive ? "#3b82f6" : disabled ? "#f9fafb" : "#f0fdf4",
-                color: isActive ? "#ffffff" : disabled ? "#9ca3af" : "#15803d",
+                padding: "7px 16px", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
+                border: "1px solid " + (isActive ? "#3b82f6" : "#d1d5db"),
+                background: isActive ? "#3b82f6" : disabled ? "#f9fafb" : "#ffffff",
+                color: isActive ? "#ffffff" : disabled ? "#9ca3af" : "#374151",
                 opacity: disabled && !isActive ? 0.5 : 1,
+                transition: "background 0.1s",
               }}
             >
               {isActive ? "⟳ Draft Emails..." : "Draft Emails"}

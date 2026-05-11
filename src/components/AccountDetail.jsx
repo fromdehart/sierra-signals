@@ -127,7 +127,7 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
               { id: "contacts", label: "Contacts" },
               { id: "enrichment", label: "Enrichment" },
               { id: "outreach", label: "Outreach" },
-              { id: "drafts", label: "Draft Emails", primary: true },
+              { id: "drafts", label: "Draft Emails" },
             ].map((s, i) => s === null
               ? <div key="sep" style={{ width: 1, height: 16, background: "#e5e7eb" }} />
               : <button key={s.id} onClick={() => runStep(s.id)} disabled={isScanning}
