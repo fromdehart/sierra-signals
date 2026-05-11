@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { runOneSignalSearch, classifySignalResults, runCombinedAgentScan, runContactScan, runEnrichment, runOutreach } from "./scan.js";
 import { dbLoadAllAccounts, dbSaveAccount, dbDeleteAccount, dbLoadSettings, dbSaveSetting } from "./db.js";
 import { getAuthUrl, exchangeCode, saveTokens, loadTokens, createDraft } from "./gmail.js";
+import open from "open";
 
 dotenv.config();
 
@@ -152,8 +153,20 @@ app.post("/api/scan/outreach", async (req, res) => {
 
 app.get("/auth/google", (_req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(400).send("GOOGLE_CLIENT_ID not set in .env");
-  // Redirect via 127.0.0.1 — Google OAuth requires this for Desktop app clients
   res.redirect(getAuthUrl().replace("localhost", "127.0.0.1"));
+});
+
+// Opens the OAuth URL in the local browser on the server machine
+app.post("/api/gmail/connect", async (_req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(400).json({ error: "GOOGLE_CLIENT_ID not set" });
+  try {
+    const url = getAuthUrl().replace("localhost", "127.0.0.1");
+    await open(url);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[gmail] open browser error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get("/auth/google/callback", async (req, res) => {

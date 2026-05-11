@@ -78,6 +78,10 @@ export async function scanOutreach(contact, account, signals, msgCriteria, provi
 
 // ---------- Gmail ----------
 
+export async function connectGmail() {
+  return post("/gmail/connect", {});
+}
+
 export async function getGmailStatus() {
   const res = await fetch(BASE + "/gmail/status");
   return res.json(); // { connected, configured }

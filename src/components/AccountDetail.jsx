@@ -33,7 +33,9 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
     setLog([]);
     setScanOpen(true);
     try {
-      if (stepId === "full") {
+      if (stepId === "full+drafts") {
+        await runFullScan({ account: acct, sigCriteria, msgCriteria, provider, aiProvider, createDrafts: true, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+      } else if (stepId === "full") {
         await runFullScan({ account: acct, sigCriteria, msgCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (stepId === "signals") {
         await runBulkSignalScan({ accounts: [acct], sigCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
@@ -116,17 +118,20 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
 
             {/* Step buttons */}
             {[
+              { id: "full+drafts", label: "Run All + Draft", primary: true },
               { id: "full", label: "Run All" },
+              null,
               { id: "signals", label: "Signals" },
               { id: "contacts", label: "Contacts" },
               { id: "enrichment", label: "Enrichment" },
               { id: "outreach", label: "Outreach" },
-            ].map(s => (
-              <button key={s.id} onClick={() => runStep(s.id)} disabled={isScanning}
-                style={{ padding: "4px 10px", fontSize: 12, borderRadius: 5, border: "1px solid " + (activeStep === s.id ? "#3b82f6" : "#d1d5db"), background: activeStep === s.id ? "#3b82f6" : isScanning ? "#f9fafb" : "#ffffff", color: activeStep === s.id ? "#fff" : isScanning ? "#9ca3af" : s.id === "full" ? "#111827" : "#374151", fontWeight: s.id === "full" ? 700 : 500, cursor: isScanning ? "not-allowed" : "pointer" }}>
-                {activeStep === s.id ? "⟳ " + s.label : s.label}
-              </button>
-            ))}
+            ].map((s, i) => s === null
+              ? <div key="sep" style={{ width: 1, height: 16, background: "#e5e7eb" }} />
+              : <button key={s.id} onClick={() => runStep(s.id)} disabled={isScanning}
+                  style={{ padding: "4px 10px", fontSize: 12, borderRadius: 5, border: "1px solid " + (activeStep === s.id ? "#3b82f6" : s.primary ? "#16a34a" : "#d1d5db"), background: activeStep === s.id ? "#3b82f6" : isScanning ? "#f9fafb" : s.primary ? "#f0fdf4" : "#ffffff", color: activeStep === s.id ? "#fff" : isScanning ? "#9ca3af" : s.primary ? "#15803d" : s.id === "full" ? "#111827" : "#374151", fontWeight: s.primary || s.id === "full" ? 700 : 500, cursor: isScanning ? "not-allowed" : "pointer" }}>
+                  {activeStep === s.id ? "⟳ " + s.label : s.label}
+                </button>
+            )}
 
             {isScanning && (
               <button onClick={() => { stopRef.current.stop = true; }}

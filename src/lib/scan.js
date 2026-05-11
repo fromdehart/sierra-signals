@@ -1,4 +1,5 @@
 import * as api from "./api.js";
+import { createGmailDraftsBulk } from "./api.js";
 import { doMerge, uid } from "./scoring.js";
 
 const SEARCH_TYPES = [
@@ -10,6 +11,40 @@ const SEARCH_TYPES = [
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+// Strip duplicate articles across search buckets before classification.
+// Brave/Tavily return "URL: <url>" lines; track seen URLs and drop repeat blocks.
+// Agent returns prose — extract inline URLs to seed the seen set but don't strip.
+function deduplicateBuckets(buckets) {
+  const seen = new Set();
+  let totalSkipped = 0;
+
+  const result = buckets.map(r => {
+    if (!r.text) return r;
+
+    if (/^URL:\s*https?:\/\//m.test(r.text)) {
+      // Structured format (Brave / Tavily)
+      const blocks = r.text.split(/\n\n+/);
+      let skipped = 0;
+      const kept = blocks.filter(block => {
+        const m = block.match(/^URL:\s*(\S+)/m);
+        if (!m) return true;
+        const url = m[1].replace(/[.,;>)]+$/, "");
+        if (seen.has(url)) { skipped++; totalSkipped++; return false; }
+        seen.add(url);
+        return true;
+      });
+      return { ...r, text: kept.join("\n\n"), _skipped: skipped };
+    }
+
+    // Prose (Agent): seed the seen set so later structured buckets skip these URLs
+    (r.text.match(/https?:\/\/[^\s\n"')>]+/g) || [])
+      .forEach(u => seen.add(u.replace(/[.,;>)]+$/, "")));
+    return r;
+  });
+
+  return { buckets: result, totalSkipped };
 }
 
 function tierOrder(acct) {
@@ -30,7 +65,7 @@ async function scanOneAccount(acct, idx, total, sigCriteria, provider, aiProvide
       const pending = new Set(SEARCH_TYPES.map(t => t.label));
       onLog("  " + name + ": searching " + [...pending].join(" · "));
 
-      const searchResults = await Promise.all(
+      const rawResults = await Promise.all(
         SEARCH_TYPES.map(t =>
           api.searchOne(acct, t.id, provider).then(result => {
             pending.delete(t.label);
@@ -39,6 +74,9 @@ async function scanOneAccount(acct, idx, total, sigCriteria, provider, aiProvide
           })
         )
       );
+
+      const { buckets: searchResults, totalSkipped } = deduplicateBuckets(rawResults);
+      if (totalSkipped > 0) onLog("  " + name + ": removed " + totalSkipped + " duplicate article(s) across buckets");
 
       // Classify each bucket individually — update UI after each one
       let current = acct;
@@ -207,17 +245,18 @@ export async function runBulkOutreach({ accounts, msgCriteria, provider, aiProvi
   onLog("Outreach generation complete.");
 }
 
-// ---------- Full single-account scan (all 4 steps in sequence) ----------
+// ---------- Full single-account scan (all 4 steps, optionally + Gmail drafts) ----------
 
-export async function runFullScan({ account, sigCriteria, msgCriteria, provider, aiProvider, onLog, onAccountDone, shouldStop }) {
+export async function runFullScan({ account, sigCriteria, msgCriteria, provider, aiProvider, createDrafts, onLog, onAccountDone, shouldStop }) {
   let current = account;
+  const steps = createDrafts ? 5 : 4;
   const track = (updated) => { current = updated; onAccountDone(updated); };
 
-  onLog("=== Step 1/4: Signal Scan ===");
+  onLog("=== Step 1/" + steps + ": Signal Scan ===");
   await scanOneAccount(current, 0, 1, sigCriteria, provider, aiProvider, onLog, track);
   if (shouldStop?.()) { onLog("Stopped."); return; }
 
-  onLog("=== Step 2/4: Contact ID ===");
+  onLog("=== Step 2/" + steps + ": Contact ID ===");
   try {
     const newContacts = await api.scanContacts(current, provider, aiProvider);
     current = { ...current, contacts: newContacts };
@@ -228,7 +267,7 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
   }
   if (shouldStop?.()) { onLog("Stopped."); return; }
 
-  onLog("=== Step 3/4: Enrichment ===");
+  onLog("=== Step 3/" + steps + ": Enrichment ===");
   for (const contact of (current.contacts || [])) {
     if (shouldStop?.()) break;
     onLog("  Enriching " + contact.name + "...");
@@ -243,7 +282,7 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
   }
   if (shouldStop?.()) { onLog("Stopped."); return; }
 
-  onLog("=== Step 4/4: Outreach ===");
+  onLog("=== Step 4/" + steps + ": Outreach ===");
   for (const contact of (current.contacts || [])) {
     if (shouldStop?.()) break;
     onLog("  Generating outreach for " + contact.name + "...");
@@ -254,8 +293,23 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
     } catch (e) { onLog("  Error: " + e.message); }
     await sleep(1000);
   }
+  if (!createDrafts || shouldStop?.()) { onLog(createDrafts && shouldStop?.() ? "Stopped." : "Full scan complete."); return; }
 
-  onLog("Full scan complete.");
+  onLog("=== Step 5/5: Gmail Drafts ===");
+  for (const contact of (current.contacts || [])) {
+    if (shouldStop?.()) break;
+    const touches = contact.outreach || [];
+    if (!touches.length) { onLog("  " + contact.name + ": no outreach, skipping"); continue; }
+    try {
+      const drafts = touches.map(t => ({ subject: t.subject, body: t.body }));
+      const result = await createGmailDraftsBulk(drafts);
+      onLog("  " + contact.name + ": " + result.created + "/" + drafts.length + " draft(s) saved");
+    } catch (e) {
+      onLog("  " + contact.name + " drafts error: " + e.message);
+    }
+  }
+
+  onLog("Full scan + drafts complete.");
 }
 
 // ---------- Single-contact operations ----------

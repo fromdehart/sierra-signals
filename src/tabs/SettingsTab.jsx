@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect } from "react";
 import { parseCSV } from "../lib/scan.js";
 import { AI_PROVIDER_LABELS } from "../lib/constants.js";
-import { getGmailStatus, disconnectGmail } from "../lib/api.js";
+import { getGmailStatus, disconnectGmail, connectGmail } from "../lib/api.js";
 
 export default function SettingsTab({ accounts, onImport, onClear, aiProvider, onAiProviderChange, availableProviders }) {
   const [gmailStatus, setGmailStatus] = useState({ connected: false, configured: false });
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     getGmailStatus().then(setGmailStatus).catch(() => {});
@@ -20,6 +21,17 @@ export default function SettingsTab({ accounts, onImport, onClear, aiProvider, o
   async function handleDisconnect() {
     await disconnectGmail();
     setGmailStatus(s => ({ ...s, connected: false }));
+  }
+
+  async function handleConnect() {
+    setConnecting(true);
+    try {
+      await connectGmail();
+    } catch (e) {
+      alert("Could not open browser on server machine: " + e.message);
+    } finally {
+      setConnecting(false);
+    }
   }
   const fileRef = useRef(null);
 
@@ -147,14 +159,15 @@ export default function SettingsTab({ accounts, onImport, onClear, aiProvider, o
           </div>
         ) : (
           <div>
-            <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 10 }}>
-              Connect Gmail to create drafts directly from outreach touches. Because this app runs locally, you need to authorize once in a browser <strong>on the server machine</strong> (where the server is running).
+            <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>
+              Connect Gmail to create drafts directly from outreach touches.
             </p>
-            <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6, padding: "10px 14px", marginBottom: 12, fontFamily: "monospace", fontSize: 13, color: "#1d4ed8" }}>
-              http://localhost:3002/auth/google
-            </div>
+            <button onClick={handleConnect} disabled={connecting}
+              style={{ padding: "7px 18px", borderRadius: 7, border: "1px solid #3b82f6", background: "#eff6ff", color: "#1d4ed8", fontWeight: 600, fontSize: 13, cursor: connecting ? "default" : "pointer", opacity: connecting ? 0.6 : 1, marginBottom: 10 }}>
+              {connecting ? "Opening browser..." : "Connect Gmail"}
+            </button>
             <p style={{ color: "#9ca3af", fontSize: 12, marginBottom: 0 }}>
-              Open that URL on the server machine → authorize → this page will update automatically.
+              This opens a browser window <strong>on the server machine</strong> to authorize. Once you approve, this page updates automatically.
             </p>
           </div>
         )}

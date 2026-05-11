@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { PROVIDER_LABELS } from "../lib/constants.js";
-import { runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach } from "../lib/scan.js";
+import { runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, runFullScan } from "../lib/scan.js";
 
 const SCAN_TYPES = [
   { id: "signals",     label: "Account Signals" },
@@ -49,7 +49,13 @@ export default function ScanActions({
     const accts = allAccounts.filter(a => selectedAccounts.includes(a.id));
 
     try {
-      if (type === "signals") {
+      if (type === "full+drafts") {
+        for (let i = 0; i < accts.length; i++) {
+          if (shouldStop()) break;
+          await runFullScan({ account: accts[i], sigCriteria, msgCriteria, provider, aiProvider, createDrafts: true, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+          if (i < accts.length - 1 && !shouldStop()) await new Promise(r => setTimeout(r, 3000));
+        }
+      } else if (type === "signals") {
         await runBulkSignalScan({ accounts: accts, sigCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (type === "contacts") {
         await runBulkContactScan({ accounts: accts, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
@@ -121,7 +127,30 @@ export default function ScanActions({
       </div>
 
       {/* Scan buttons */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Run All + Draft */}
+        {(() => {
+          const isActive = activeType === "full+drafts";
+          const disabled = count === 0 || (isScanning && !isActive);
+          return (
+            <button
+              onClick={() => startScan("full+drafts")}
+              disabled={disabled}
+              style={{
+                padding: "7px 16px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+                border: "1px solid " + (isActive ? "#3b82f6" : "#16a34a"),
+                background: isActive ? "#3b82f6" : disabled ? "#f9fafb" : "#f0fdf4",
+                color: isActive ? "#ffffff" : disabled ? "#9ca3af" : "#15803d",
+                opacity: disabled && !isActive ? 0.5 : 1,
+              }}
+            >
+              {isActive ? "⟳ Run All + Draft..." : "Run All + Draft"}
+            </button>
+          );
+        })()}
+
+        <div style={{ width: 1, height: 20, background: "#e5e7eb" }} />
+
         {SCAN_TYPES.map(t => {
           const isActive = activeType === t.id;
           const disabled = count === 0 || (isScanning && !isActive);

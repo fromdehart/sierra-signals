@@ -5,7 +5,7 @@ function getClient() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    "http://127.0.0.1:3002/auth/google/callback"
+    `http://127.0.0.1:${process.env.PORT || 3002}/auth/google/callback`
   );
 }
 
