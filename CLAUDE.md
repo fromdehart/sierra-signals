@@ -1,37 +1,157 @@
-# Sierra Signals — Developer Guide
+# Sierra Signals
 
-A local sales prospecting dashboard for Sierra AI AEs. It monitors target accounts for buying signals, identifies key decision-makers, and drafts personalized outreach sequences. Powered by AI search (Claude Agent SDK, Brave, or Tavily) and Claude for classification and writing.
+A local sales intelligence dashboard for AEs. Monitors target accounts for buying signals, finds key decision-makers, and drafts personalized outreach email sequences. Runs entirely on your machine — no cloud account needed beyond the API keys you choose to add.
 
 ---
 
-## How to run
+## Setup
+
+### 1 — Prerequisites
 
 ```bash
-# 1. Install dependencies (first time only)
-npm install
-
-# 2. Copy the env file and add your API keys
-cp .env.example .env
-# Edit .env — add BRAVE_API_KEY and/or TAVILY_API_KEY if you want those providers
-# The Claude Agent provider needs no API key — it uses your existing `claude` login
-
-# 3. Start everything
-npm run dev
-# Opens: http://localhost:5173 (frontend)
-# Server: http://localhost:3001 (backend API)
+node --version      # must be 18 or newer
+npm --version       # any recent version
+claude auth status  # must show logged in — run `claude auth login` if not
 ```
 
-If Claude Code starts the server for you, just open `http://localhost:5173` in your browser.
+### 2 — Install dependencies
+
+```bash
+npm install
+```
+
+### 3 — Configure API keys
+
+```bash
+bash setup.sh
+```
+
+Prompts for each key one at a time and writes them to `.env`. Press Enter to skip any — the app works without most of them.
+
+| Key | Where to get it | Free tier | What it enables |
+|-----|----------------|-----------|-----------------|
+| `BRAVE_API_KEY` | https://brave.com/search/api/ | 2,000 queries/month | Brave Search provider |
+| `TAVILY_API_KEY` | https://tavily.com | 1,000 credits/month | Tavily Search provider |
+| `ANTHROPIC_API_KEY` | https://console.anthropic.com/ | Pay-per-use | Fast Claude classification (~5s vs ~90s) |
+| `OPENAI_API_KEY` | https://platform.openai.com/ | Pay-per-use | OpenAI gpt-5-mini as alternative AI |
+| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | Google Cloud Console | Free | Gmail draft creation |
+
+**Minimum viable setup (zero keys):** The built-in Claude Agent provider uses your `claude auth login` session for both search and classification. It's slower (~90s per account step) but completely free.
+
+**Recommended:** Add `ANTHROPIC_API_KEY` (classification drops from ~90s to ~5s) and `BRAVE_API_KEY` or `TAVILY_API_KEY` (more reliable search).
+
+### 4 — Start the app
+
+```bash
+npm run dev
+```
+
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:3002
+
+Open http://localhost:5173. A green "Server online" indicator appears when the backend is reachable.
 
 ---
 
-## How to get API keys
+## Importing accounts
 
-| Provider | Where to get it | Free tier |
-|---|---|---|
-| Claude Agent | None needed — uses `claude auth login` | — |
-| Brave Search | https://brave.com/search/api/ | 2,000 queries/month |
-| Tavily | https://tavily.com | 1,000 credits/month |
+Go to **Settings → Import Accounts** and select a CSV file.
+
+Required columns:
+```
+Account Name, Account Website, Sales Tier, Account Last Meeting,
+Account Last Email, Sierra Industry, Sierra Subindustry, Annual Revenue
+```
+
+- `Sales Tier` — `A`, `B`, or `C` (A accounts scan first)
+- `Sierra Industry` / `Sierra Subindustry` — improves signal relevance (e.g. "Retail", "E-commerce")
+- `Annual Revenue` — number only, no $ or commas
+- Extra columns are ignored
+
+---
+
+## Running scans
+
+1. Go to the **Accounts** tab
+2. Check one or more accounts
+3. Click **Run All + Draft** to run the full pipeline, or use individual step buttons:
+
+| Button | What it does |
+|--------|-------------|
+| Run All + Draft | Signals → Contacts → Enrichment → Outreach → Gmail drafts |
+| Run All | Same pipeline without drafts |
+| Account Signals | 4 parallel web searches → AI classifies into signal categories |
+| Contact ID | Finds current executives at the company |
+| Contact Enrichment | Verifies roles and finds public quotes |
+| Outreach | Generates a 3-touch email sequence per contact |
+| Draft Emails | Creates Gmail drafts from existing outreach (no re-scan) |
+
+First scan takes 3–10 minutes per account depending on AI provider.
+
+---
+
+## Gmail integration (optional)
+
+Creates Gmail drafts directly from outreach touches.
+
+1. Go to https://console.cloud.google.com
+2. Enable the Gmail API: APIs & Services → Library → Gmail API → Enable
+3. Create credentials: APIs & Services → Credentials → Create OAuth 2.0 Client ID
+   - Application type: **Desktop app**
+4. Copy the Client ID and Secret into `.env` (or re-run `bash setup.sh`)
+5. Restart the server
+6. Go to **Settings → Gmail Integration → Connect Gmail**
+   - Opens a browser on this machine to authorize
+   - Page updates automatically when done
+
+---
+
+## Troubleshooting
+
+**"Server offline" banner:** Run `npm run dev` — both servers must start.
+
+**Scans return no results:**
+- Check the server terminal for errors
+- Run `claude auth status` — Agent provider requires active login
+- Verify API keys in `.env` and restart server
+
+**Scans are slow:** Normal without `ANTHROPIC_API_KEY`. Agent subprocess takes ~60–90s per step; Anthropic API drops that to ~5s.
+
+**Gmail "not connected" error:** Go to Settings → Gmail Integration and connect first.
+
+**Data disappears after refresh:** Don't use private/incognito mode. Check Chrome DevTools → Application → Local Storage for keys starting with `sierra_`.
+
+---
+
+## How the scan pipeline works
+
+Each scan type is orchestrated in `src/lib/scan.js`, which calls the Express backend for AI work.
+
+### Signal scan
+1. 4 parallel searches: leadership changes, CX/AI initiatives, funding/M&A, negative CX press
+2. URLs deduplicated across buckets — same article only classified once
+3. Claude classifies each bucket into the 7 signal categories → JSON array
+4. Results merged with existing signals (deduplication by headline)
+
+### Contact ID scan
+1. 4 parallel searches: CCO/CXO, VP Support, CTO/CDO/AI roles, recent appointments
+2. Combined text → Claude extracts up to 8 real named executives → JSON array
+
+### Enrichment
+1. One search per contact: verify current role + find public quote on CX/AI/support
+2. Returns `{ verified, verification_note, enrichment: { insight, quote, source } }`
+
+### Outreach generation
+1. Pure Claude call — no search
+2. Uses top signals + enrichment insight + contact quote
+3. Returns 3-touch email sequence
+
+### AI provider logic
+`classifyText()` in `server/scan.js` selects the LLM:
+- `aiProvider === "openai"` → OpenAI gpt-5-mini (requires `OPENAI_API_KEY`)
+- `aiProvider === "anthropic"` → Claude Sonnet via Anthropic API (requires `ANTHROPIC_API_KEY`)
+- `aiProvider === "auto"` → Anthropic if key present, else Agent subprocess
+- Search provider (agent/brave/tavily) is separate from AI provider
 
 ---
 
@@ -39,139 +159,72 @@ If Claude Code starts the server for you, just open `http://localhost:5173` in y
 
 ```
 sierra-signals/
-├── server/                    ← Node.js Express backend
-│   ├── index.js               ← HTTP routes, starts on :3001
-│   ├── scan.js                ← All scan logic (signals, contacts, enrich, outreach)
-│   ├── lib.js                 ← Shared utilities (normCat, uid, sleep, CANONICAL_CATS)
+├── server/                    ← Node.js Express backend (port 3002)
+│   ├── index.js               ← HTTP routes
+│   ├── scan.js                ← All scan logic + classifyText()
+│   ├── gmail.js               ← Gmail OAuth + draft creation
+│   ├── db.js                  ← SQLite (settings, Gmail tokens)
+│   ├── lib.js                 ← normCat, uid, CANONICAL_CATS
 │   └── providers/
 │       ├── agent.js           ← Claude Code SDK (WebSearch + classify)
-│       ├── brave.js           ← Brave Search REST API (search only)
-│       └── tavily.js          ← Tavily SDK (search only)
+│       ├── brave.js           ← Brave Search REST API
+│       └── tavily.js          ← Tavily SDK
 │
-└── src/                       ← React frontend (Vite)
-    ├── App.jsx                ← Root: state, tabs, panels, auto-save
-    ├── main.jsx               ← React entry point
+└── src/                       ← React frontend (Vite, port 5173)
+    ├── App.jsx                ← Root state, tabs, auto-save
     ├── lib/
-    │   ├── constants.js       ← CANONICAL_CATS, CAT_COLORS, STATUS_COLORS, default prompts
-    │   ├── storage.js         ← localStorage adapter (chunked format)
-    │   ├── scoring.js         ← calcScore, normCat, doMerge, relDate, uid
-    │   ├── api.js             ← HTTP calls to Express (/api/scan/*)
-    │   └── scan.js            ← Scan orchestration (bulk loops, CSV import)
+    │   ├── constants.js       ← CANONICAL_CATS, CAT_COLORS, AI_PROVIDER_LABELS, default prompts
+    │   ├── api.js             ← HTTP calls to Express
+    │   ├── scan.js            ← Scan orchestration, deduplication, CSV import
+    │   ├── scoring.js         ← calcScore, normCat, doMerge, uid
+    │   └── storage.js         ← localStorage adapter (chunked format)
     ├── components/
-    │   ├── SigCard.jsx        ← Signal card, reused everywhere
-    │   ├── CatBar.jsx         ← Category filter bar (derived from live data)
-    │   ├── HealthDots.jsx     ← 4 status dots per account
-    │   ├── ScanActions.jsx    ← 4 scan buttons + provider selector + log
-    │   ├── SignalPanel.jsx    ← Slide-in panel: account signals + contacts + outreach
-    │   └── ContactPanel.jsx   ← Slide-in panel: contact detail + outreach generator
+    │   ├── AccountDetail.jsx  ← Per-account signals + contacts + outreach + scan panel
+    │   └── ScanActions.jsx    ← Bulk scan buttons for accounts tab
     └── tabs/
-        ├── PriorityTab.jsx    ← Top accounts, hottest signals, ready-to-contact
-        ├── SignalsTab.jsx     ← Full signal feed with filters
         ├── AccountsTab.jsx    ← Sortable table + ScanActions
+        ├── PriorityTab.jsx    ← Top accounts, hottest signals
+        ├── SignalsTab.jsx     ← Full signal feed with filters
         ├── ContactsTab.jsx    ← All contacts across accounts
-        ├── CriteriaTab.jsx    ← Edit signal and messaging prompts
-        └── SettingsTab.jsx    ← Import CSV, export, clear data
+        ├── CriteriaTab.jsx    ← Edit AI prompts for signals and outreach
+        └── SettingsTab.jsx    ← Import, AI provider, Gmail, export, clear
 ```
 
----
+Data is stored in two places:
+- **Browser localStorage** — accounts, signals, contacts, outreach (chunked format to avoid per-key size limits)
+- **SQLite** (`data/sierra.db`) — settings and Gmail OAuth tokens
 
-## How the scan pipeline works
-
-Each scan type runs in the frontend (`src/lib/scan.js`), which calls the Express backend for the actual AI work. The backend picks the right search provider.
-
-### Signal scan (per account)
-1. 4 parallel searches: leadership, CX/AI, funding, negative press
-2. Search results combined into one block of text
-3. Claude classifies the text into the 7 signal categories → JSON array
-4. Results merged with existing signals (deduplication by headline)
-
-### Contact ID scan
-1. 4 parallel searches: CCO/CXO roles, VP Support roles, CTO/CDO/AI roles, recent appointments
-2. Combined text → Claude extracts up to 8 real named executives → JSON array
-3. Each contact initialized with `id`, `status: "Not started"`, empty outreach
-
-### Enrichment (per contact)
-1. One search: verify current role + find public quote on CX/AI/support
-2. Claude returns `{ verified, verification_note, enrichment: { insight, quote, source } }`
-
-### Outreach generation (per contact)
-1. No search — pure Claude call
-2. Uses top signals + enrichment insight + contact quote
-3. Returns 3-touch email sequence
-
-### Provider logic
-- **Claude Agent**: uses `@anthropic-ai/claude-code` SDK with `allowedTools: ["WebSearch"]` for search, then a second call (no tools) for classification
-- **Brave / Tavily**: uses their respective APIs for search, then **always uses Claude Agent** for classification (no extra API key needed for classify)
-
-This means: even when using Brave or Tavily, you still need `claude` to be logged in. The search API just replaces Claude's web browsing, not the reasoning.
+Auto-save fires 2 seconds after any account change.
 
 ---
 
-## Data storage
-
-All data is stored in `localStorage` using a chunked key format (to avoid per-key size limits):
-
-| Key pattern | Contents |
-|---|---|
-| `sierra_signals_v1` | Index of all account IDs |
-| `acct:<id>` | Account base fields (no arrays) |
-| `sigs:<id>:count` + `sigs:<id>:0..N` | Signal chunks (10 per key) |
-| `ctcts:<id>:ids` + `ctct:<cid>` | Contact IDs + individual contacts |
-| `sierra_criteria_v1` | Signal and messaging criteria prompts |
-| `sierra_provider` | Currently selected provider |
-
-Auto-save fires 2 seconds after any account change. The Save button in the header also saves criteria.
-
----
-
-## Common things to ask Claude Code to do
+## Common customizations
 
 **Add a new signal category:**
-- Add the new name to `CANONICAL_CATS` in both `server/lib.js` and `src/lib/constants.js`
+- Add to `CANONICAL_CATS` in both `server/lib.js` and `src/lib/constants.js`
 - Add a color entry to `CAT_COLORS` in `src/lib/constants.js`
-- Update the default signal criteria prompt in `src/lib/constants.js` (`DEFAULT_SIG_CRITERIA`)
+- Update `DEFAULT_SIG_CRITERIA` in `src/lib/constants.js`
 
 **Change the scoring formula:**
 - Edit `calcScore()` in `src/lib/scoring.js`
 
-**Add a fourth search provider (e.g. Perplexity):**
+**Add a search provider (e.g. Perplexity):**
 - Create `server/providers/perplexity.js` with a `search(query)` export
-- Import and add it to `getProvider()` in `server/scan.js`
+- Add to `getProvider()` in `server/scan.js`
 - Add `PERPLEXITY_API_KEY` to `.env.example`
 - Add to `PROVIDER_LABELS` in `src/lib/constants.js`
-- Add to the `/api/providers` endpoint in `server/index.js`
+- Add to `/api/providers` in `server/index.js`
 
-**Change the number of search results per query:**
+**Change number of search results per query:**
 - Brave: `count=8` in `server/providers/brave.js`
 - Tavily: `maxResults: 8` in `server/providers/tavily.js`
 
 **Adjust rate limiting between accounts:**
-- Change the `sleep(5000)` calls in `src/lib/scan.js` (currently 5 seconds between accounts, 1 second between contacts)
+- Change `sleep(5000)` in `src/lib/scan.js` (currently 5s between accounts, 1s between contacts)
 
-**Change the Claude model used for classification:**
-- The agent SDK uses whatever model `claude` is configured with. To pin a model, pass `model: "claude-sonnet-4-6"` in the options object in `server/providers/agent.js`.
+**Pin the Claude model for classification:**
+- Pass `model: "claude-sonnet-4-6"` in the options object in `server/providers/agent.js`
 
-**Add Salesforce / HubSpot integration:**
+**Add CRM integration (Salesforce / HubSpot):**
 - Add a new Express route in `server/index.js`
-- Add a new button/section in `src/tabs/SettingsTab.jsx`
-
----
-
-## Troubleshooting
-
-**"Server offline" banner in the UI:**
-The Express backend isn't running. Run `npm run dev` or `npm run server` separately.
-
-**Scans return no results:**
-- Check the terminal running the server for error output
-- Verify `claude auth status` is logged in (for Agent provider)
-- Verify your API keys in `.env` (for Brave/Tavily)
-
-**"BRAVE_API_KEY not set" error:**
-Add the key to your `.env` file, then restart the server.
-
-**Tavily/Brave buttons grayed out in the UI:**
-The server didn't find the key in `.env`. Check the server startup output — it logs which providers are active.
-
-**Data not persisting between sessions:**
-Check that your browser isn't clearing localStorage on close. In Chrome DevTools → Application → Local Storage, you should see keys starting with `sierra_`.
+- Add a button/section in `src/tabs/SettingsTab.jsx`
