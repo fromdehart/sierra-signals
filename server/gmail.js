@@ -32,6 +32,13 @@ export function loadTokens() {
   return settings.gmailTokens || null;
 }
 
+function encodeSubject(subject) {
+  if (/[^\x00-\x7F]/.test(subject)) {
+    return "=?UTF-8?B?" + Buffer.from(subject, "utf8").toString("base64") + "?=";
+  }
+  return subject;
+}
+
 export async function createDraft({ to, subject, body }) {
   const tokens = loadTokens();
   if (!tokens) throw new Error("Gmail not connected");
@@ -46,16 +53,15 @@ export async function createDraft({ to, subject, body }) {
 
   const gmail = google.gmail({ version: "v1", auth: client });
 
-  const lines = [
+  const headers = [
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
-    to ? "To: " + to : "",
-    "Subject: " + subject,
-    "",
-    body,
-  ].filter(Boolean);
+    ...(to ? ["To: " + to] : []),
+    "Subject: " + encodeSubject(subject),
+  ].join("\n");
 
-  const raw = Buffer.from(lines.join("\n")).toString("base64url");
+  // Blank line between headers and body is required by RFC 2822
+  const raw = Buffer.from(headers + "\n\n" + (body || ""), "utf8").toString("base64url");
 
   await gmail.users.drafts.create({
     userId: "me",

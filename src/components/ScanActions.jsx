@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { PROVIDER_LABELS } from "../lib/constants.js";
-import { runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, runFullScan } from "../lib/scan.js";
+import { runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, runFullScan, runBulkDraftEmails } from "../lib/scan.js";
 
 const SCAN_TYPES = [
   { id: "signals",     label: "Account Signals" },
@@ -63,6 +63,8 @@ export default function ScanActions({
         await runBulkEnrichment({ accounts: accts, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (type === "outreach") {
         await runBulkOutreach({ accounts: accts, msgCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+      } else if (type === "drafts") {
+        await runBulkDraftEmails({ accounts: accts, onLog: addLog, shouldStop });
       }
     } catch (e) {
       addLog("Error: " + e.message);
@@ -176,6 +178,27 @@ export default function ScanActions({
             </button>
           );
         })}
+
+        {/* Draft Emails — standalone, green */}
+        {(() => {
+          const isActive = activeType === "drafts";
+          const disabled = count === 0 || (isScanning && !isActive);
+          return (
+            <button
+              onClick={() => startScan("drafts")}
+              disabled={disabled}
+              style={{
+                padding: "7px 16px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+                border: "1px solid " + (isActive ? "#3b82f6" : "#16a34a"),
+                background: isActive ? "#3b82f6" : disabled ? "#f9fafb" : "#f0fdf4",
+                color: isActive ? "#ffffff" : disabled ? "#9ca3af" : "#15803d",
+                opacity: disabled && !isActive ? 0.5 : 1,
+              }}
+            >
+              {isActive ? "⟳ Draft Emails..." : "Draft Emails"}
+            </button>
+          );
+        })()}
       </div>
 
       {/* Scan log */}

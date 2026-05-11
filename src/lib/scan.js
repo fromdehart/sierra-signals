@@ -312,6 +312,29 @@ export async function runFullScan({ account, sigCriteria, msgCriteria, provider,
   onLog("Full scan + drafts complete.");
 }
 
+// ---------- Draft emails from existing outreach ----------
+
+export async function runBulkDraftEmails({ accounts, onLog, shouldStop }) {
+  for (const acct of accounts) {
+    if (shouldStop?.()) break;
+    const name = acct["Account Name"] || acct.id;
+    const contacts = (acct.contacts || []).filter(c => c.outreach?.length);
+    if (!contacts.length) { onLog(name + ": no outreach to draft"); continue; }
+    onLog(name + ": creating drafts for " + contacts.length + " contact(s)...");
+    for (const contact of contacts) {
+      if (shouldStop?.()) break;
+      try {
+        const drafts = contact.outreach.map(t => ({ subject: t.subject, body: t.body }));
+        const result = await createGmailDraftsBulk(drafts);
+        onLog("  " + contact.name + ": " + result.created + "/" + drafts.length + " draft(s) saved");
+      } catch (e) {
+        onLog("  " + contact.name + ": error — " + e.message);
+      }
+    }
+  }
+  onLog("Drafts complete.");
+}
+
 // ---------- Single-contact operations ----------
 
 export async function enrichContact(contact, acct, provider, aiProvider) {

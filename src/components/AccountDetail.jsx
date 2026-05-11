@@ -3,7 +3,7 @@ import SigCard from "./SigCard.jsx";
 import HealthDots from "./HealthDots.jsx";
 import { calcScore, scoreColor, relDate } from "../lib/scoring.js";
 import { CAT_COLORS, STATUS_COLORS, STATUSES, PROVIDER_LABELS } from "../lib/constants.js";
-import { runFullScan, runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, enrichContact, generateOutreach } from "../lib/scan.js";
+import { runFullScan, runBulkSignalScan, runBulkContactScan, runBulkEnrichment, runBulkOutreach, runBulkDraftEmails, enrichContact, generateOutreach } from "../lib/scan.js";
 import { createGmailDraft } from "../lib/api.js";
 
 export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCriteria, msgCriteria, provider, onProviderChange, aiProvider, availableProviders }) {
@@ -45,6 +45,8 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
         await runBulkEnrichment({ accounts: [acct], provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
       } else if (stepId === "outreach") {
         await runBulkOutreach({ accounts: [acct], msgCriteria, provider, aiProvider, onLog: addLog, onAccountDone: onAccountUpdated, shouldStop });
+      } else if (stepId === "drafts") {
+        await runBulkDraftEmails({ accounts: [acct], onLog: addLog, shouldStop });
       }
     } catch (e) {
       addLog("Error: " + e.message);
@@ -125,6 +127,7 @@ export default function AccountDetail({ acct, onBack, onAccountUpdated, sigCrite
               { id: "contacts", label: "Contacts" },
               { id: "enrichment", label: "Enrichment" },
               { id: "outreach", label: "Outreach" },
+              { id: "drafts", label: "Draft Emails", primary: true },
             ].map((s, i) => s === null
               ? <div key="sep" style={{ width: 1, height: 16, background: "#e5e7eb" }} />
               : <button key={s.id} onClick={() => runStep(s.id)} disabled={isScanning}
